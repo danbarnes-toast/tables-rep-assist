@@ -1,14 +1,16 @@
-import { anthropic } from '@ai-sdk/anthropic';
-import { streamText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { streamText, convertToModelMessages } from 'ai';
 import { SYSTEM_PROMPT } from '@/lib/system-prompt';
 
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const { messages } = await req.json();
+  const body = await req.json();
+  const uiMessages = Array.isArray(body) ? body : (body.messages ?? []);
+  const messages = await convertToModelMessages(uiMessages);
 
   const result = streamText({
-    model: anthropic('claude-sonnet-4-6'),
+    model: openai('gpt-4o'),
     system: SYSTEM_PROMPT,
     messages,
   });
