@@ -4,7 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { RepContext, AccountContext } from '@/lib/system-prompt';
 
-type Mode = 'ask' | 'train' | 'prep' | 'accounts';
+type Mode = 'ask' | 'train' | 'prep' | 'accounts' | 'proof';
 
 // --- Markdown renderer ---
 function Markdown({ text }: { text: string }) {
@@ -825,12 +825,12 @@ export default function Home() {
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Jul 2026</span>
           </div>
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            {(['ask', 'train', 'prep', 'accounts'] as Mode[]).map((m) => (
+            {(['ask', 'train', 'prep', 'accounts', 'proof'] as Mode[]).map((m) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
                   mode === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}>
-                {m === 'accounts' ? 'Pipeline' : m === 'ask' ? 'Ask' : m === 'train' ? 'Train' : 'Prep'}
+                {m === 'accounts' ? 'Pipeline' : m === 'ask' ? 'Ask' : m === 'train' ? 'Train' : m === 'prep' ? 'Prep' : 'Proof'}
               </button>
             ))}
           </div>
@@ -854,6 +854,31 @@ export default function Home() {
             repData={repData}
             selectedAccountIdx={selectedAccountIdx}
             setSelectedAccountIdx={setSelectedAccountIdx}
+          />
+        </div>
+      ) : mode === 'proof' ? (
+        <div className="flex-1 flex flex-col">
+          <div className="border-b border-gray-100 px-4 py-2 bg-gray-50 flex-shrink-0">
+            <div className="max-w-3xl mx-auto flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-gray-700">Customer Proof</p>
+                <p className="text-xs text-gray-400">Real restaurants using Toast Tables — by category</p>
+              </div>
+              <a
+                href="https://www.magicpatterns.com/c/85kpuhe3owkyfvqsjfwmus"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-orange-500 hover:text-orange-600 font-medium"
+              >
+                Open full screen ↗
+              </a>
+            </div>
+          </div>
+          <iframe
+            src="https://01df6993-d785-4918-bacc-6c42c622de8f-render.magicpatterns.app/"
+            className="flex-1 w-full border-0"
+            title="Rep Assist Proof Slides"
+            allow="fullscreen"
           />
         </div>
       ) : (
