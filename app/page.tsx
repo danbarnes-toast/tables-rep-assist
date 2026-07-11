@@ -4,7 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { RepContext, AccountContext } from '@/lib/system-prompt';
 
-type Mode = 'ask' | 'train' | 'accounts';
+type Mode = 'ask' | 'train' | 'prep' | 'accounts';
 
 // --- Markdown renderer ---
 function Markdown({ text }: { text: string }) {
@@ -109,6 +109,304 @@ function daysSince(dateStr: string): number {
   const d = new Date(dateStr);
   const now = new Date();
   return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// --- Prep brief types ---
+interface OpenCommitment {
+  owner: string;
+  item: string;
+  status: 'pending' | 'likely_done' | 'unknown';
+}
+interface PredictedObjection {
+  objection: string;
+  counter: string;
+}
+interface PrepBrief {
+  situation: string;
+  discussed: string[];
+  open_commitments: OpenCommitment[];
+  predicted_objections: PredictedObjection[];
+  suggested_opening: string;
+  one_close: string;
+  confidence: 'high' | 'medium' | 'low';
+  confidence_reason: string;
+}
+
+// --- Prep tab ---
+function PrepTab({
+  repData,
+  selectedAccountIdx,
+  setSelectedAccountIdx,
+}: {
+  repData: RepData | null;
+  selectedAccountIdx: number | null;
+  setSelectedAccountIdx: (idx: number | null) => void;
+}) {
+  const [brief, setBrief] = useState<PrepBrief | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastAccountIdx, setLastAccountIdx] = useState<number | null>(null);
+
+  const selectedAccount = selectedAccountIdx !== null ? (repData?.accounts[selectedAccountIdx] ?? null) : null;
+
+  const generateBrief = async (accountIdx: number) => {
+    if (!repData) return;
+    const account = repData.accounts[accountIdx];
+    setLoading(true);
+    setError(null);
+    setBrief(null);
+    setLastAccountIdx(accountIdx);
+    try {
+      const res = await fetch('/api/prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repName: repData.rep_name,
+          repTeam: repData.team,
+          account: {
+            name: account.name,
+            city: account.city,
+            state: account.state,
+            signed_date: account.signed_date,
+            activation_status: account.activation_status,
+            is_activated: account.is_activated,
+            bookings_90d: account.bookings_90d,
+            current_booking_platform: account.current_booking_platform,
+            chorus_calls: (account.chorus_calls ?? []).map(c => ({
+              call_date: c.call_date,
+              summary: c.summary,
+              action_items: c.action_items,
+            })),
+          },
+        }),
+      });
+      const data = await res.json() as { brief?: PrepBrief; error?: string };
+      if (data.error) throw new Error(data.error);
+      if (data.brief) setBrief(data.brief);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate brief');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confidenceColor = {
+    high: 'bg-green-100 text-green-700 border-green-200',
+    medium: 'bg-amber-100 text-amber-700 border-amber-200',
+    low: 'bg-red-100 text-red-700 border-red-200',
+  };
+
+  const commitmentStatusIcon = {
+    pending: { icon: '○', color: 'text-amber-600' },
+    likely_done: { icon: '✓', color: 'text-green-600' },
+    unknown: { icon: '?', color: 'text-gray-400' },
+  };
+
+  if (!repData) {
+    return (
+      <div className="pt-12 text-center text-sm text-gray-400">
+        Loading your account data...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 py-4">
+      {/* Account picker */}
+      <div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Pre-Call Brief</h2>
+        <div className="space-y-2">
+          {repData.accounts.map((acct, i) => {
+            const isSelected = selectedAccountIdx === i;
+            const hasCall = (acct.chorus_calls?.length ?? 0) > 0;
+            return (
+              <button
+                key={acct.name}
+                onClick={() => {
+                  setSelectedAccountIdx(i);
+                  if (lastAccountIdx !== i) generateBrief(i);
+                }}
+                className={`w-full text-left rounded-xl border px-4 py-3 transition-colors ${
+                  isSelected
+                    ? 'border-orange-300 bg-orange-50'
+                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{acct.name}</p>
+                    <p className="text-xs text-gray-400">{acct.city}, {acct.state} · {acct.activation_status}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasCall && (
+                      <span className="text-xs text-blue-500 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">
+                        {acct.chorus_calls!.length} call{acct.chorus_calls!.length !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">{isSelected ? '▼' : '▶'}</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Loading skeleton */}
+      {loading && selectedAccount && (
+        <div className="space-y-4">
+          <div className="bg-orange-50 border border-orange-100 rounded-2xl px-5 py-4">
+            <p className="text-xs text-orange-500 font-medium mb-1">Generating brief for {selectedAccount.name}...</p>
+            <p className="text-xs text-gray-400">Synthesizing {selectedAccount.chorus_calls?.length ?? 0} call{(selectedAccount.chorus_calls?.length ?? 0) !== 1 ? 's' : ''} + deal context</p>
+          </div>
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="border border-gray-100 rounded-xl px-5 py-4 space-y-2">
+              <div className="h-3 bg-gray-100 rounded w-24 animate-pulse" />
+              <div className="h-3 bg-gray-100 rounded w-full animate-pulse" />
+              <div className="h-3 bg-gray-100 rounded w-3/4 animate-pulse" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600">
+          {error}
+          <button
+            onClick={() => selectedAccountIdx !== null && generateBrief(selectedAccountIdx)}
+            className="ml-3 text-xs text-red-500 underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Brief */}
+      {brief && selectedAccount && !loading && (
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-gray-900">{selectedAccount.name}</p>
+              <p className="text-xs text-gray-400">
+                {selectedAccount.city}, {selectedAccount.state} ·{' '}
+                {selectedAccount.chorus_calls?.length ?? 0} calls synthesized ·{' '}
+                {selectedAccount.activation_status}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${confidenceColor[brief.confidence]}`}>
+                {brief.confidence} confidence
+              </span>
+              <button
+                onClick={() => selectedAccountIdx !== null && generateBrief(selectedAccountIdx)}
+                className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* Situation */}
+          <div className="bg-orange-50 border border-orange-100 rounded-2xl px-5 py-4">
+            <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-2">Situation</p>
+            <p className="text-sm text-gray-800 leading-relaxed">{brief.situation}</p>
+            {brief.confidence_reason && (
+              <p className="text-xs text-gray-400 mt-2 italic">{brief.confidence_reason}</p>
+            )}
+          </div>
+
+          {/* Suggested opening */}
+          <div className="bg-blue-50 border border-blue-100 rounded-2xl px-5 py-4">
+            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-2">Open with this</p>
+            <p className="text-sm text-gray-900 leading-relaxed font-medium">&ldquo;{brief.suggested_opening}&rdquo;</p>
+          </div>
+
+          {/* What's been discussed */}
+          {brief.discussed.length > 0 && (
+            <div className="border border-gray-200 rounded-2xl px-5 py-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">What&apos;s been discussed</p>
+              <ul className="space-y-2">
+                {brief.discussed.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                    <span className="text-gray-300 mt-0.5 flex-shrink-0">•</span>
+                    <span className="leading-relaxed">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Open commitments */}
+          {brief.open_commitments.length > 0 && (
+            <div className="border border-gray-200 rounded-2xl px-5 py-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Open commitments</p>
+              <div className="space-y-2">
+                {brief.open_commitments.map((c, i) => {
+                  const st = commitmentStatusIcon[c.status];
+                  return (
+                    <div key={i} className="flex items-start gap-3">
+                      <span className={`text-sm font-bold flex-shrink-0 mt-0.5 ${st.color}`}>{st.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-semibold text-gray-500 mr-1.5">{c.owner}</span>
+                        <span className="text-sm text-gray-700 leading-relaxed">{c.item}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-1 text-xs text-gray-400">
+                  <span className="text-amber-600 font-bold">○</span> pending
+                </div>
+                <div className="flex items-center gap-1 text-xs text-gray-400">
+                  <span className="text-green-600 font-bold">✓</span> likely done
+                </div>
+                <div className="flex items-center gap-1 text-xs text-gray-400">
+                  <span className="text-gray-400 font-bold">?</span> unknown
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Predicted objections */}
+          {brief.predicted_objections.length > 0 && (
+            <div className="border border-gray-200 rounded-2xl px-5 py-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Likely objections</p>
+              <div className="space-y-4">
+                {brief.predicted_objections.map((obj, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <div className="flex items-start gap-2">
+                      <span className="text-xs bg-red-50 text-red-600 border border-red-100 rounded px-1.5 py-0.5 font-medium flex-shrink-0 mt-0.5">them</span>
+                      <p className="text-sm text-gray-800 font-medium leading-relaxed">&ldquo;{obj.objection}&rdquo;</p>
+                    </div>
+                    <div className="flex items-start gap-2 ml-1">
+                      <span className="text-xs bg-green-50 text-green-600 border border-green-100 rounded px-1.5 py-0.5 font-medium flex-shrink-0 mt-0.5">you</span>
+                      <p className="text-sm text-gray-600 leading-relaxed">{obj.counter}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* One close */}
+          <div className="bg-gray-900 rounded-2xl px-5 py-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">One thing to close on</p>
+            <p className="text-sm text-white font-medium leading-relaxed">{brief.one_close}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state — no account selected */}
+      {!selectedAccount && !loading && !brief && (
+        <div className="pt-4 text-center text-sm text-gray-400">
+          Select an account above to generate a pre-call brief.
+        </div>
+      )}
+    </div>
+  );
 }
 
 // --- Accounts tab ---
@@ -527,12 +825,12 @@ export default function Home() {
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Jul 2026</span>
           </div>
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            {(['ask', 'train', 'accounts'] as Mode[]).map((m) => (
+            {(['ask', 'train', 'prep', 'accounts'] as Mode[]).map((m) => (
               <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
                   mode === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}>
-                {m === 'accounts' ? 'My Accounts' : m === 'ask' ? 'Ask' : 'Train'}
+                {m === 'accounts' ? 'Pipeline' : m === 'ask' ? 'Ask' : m === 'train' ? 'Train' : 'Prep'}
               </button>
             ))}
           </div>
@@ -550,10 +848,18 @@ export default function Home() {
             </div>
           )}
         </div>
+      ) : mode === 'prep' ? (
+        <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
+          <PrepTab
+            repData={repData}
+            selectedAccountIdx={selectedAccountIdx}
+            setSelectedAccountIdx={setSelectedAccountIdx}
+          />
+        </div>
       ) : (
         <ChatPane
           key={mode}
-          mode={mode}
+          mode={mode as 'ask' | 'train'}
           repData={repData}
           selectedAccountIdx={selectedAccountIdx}
           setSelectedAccountIdx={setSelectedAccountIdx}
