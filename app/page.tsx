@@ -2,6 +2,7 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import type { RepContext, AccountContext } from '@/lib/system-prompt';
 
 type Mode = 'ask' | 'train' | 'accounts';
 
@@ -66,11 +67,19 @@ function Markdown({ text }: { text: string }) {
 }
 
 // --- Types ---
+interface ChorusCall {
+  call_date: string;
+  participants: string;
+  summary: string;
+  action_items: string;
+}
 interface Account {
   name: string; city: string; state: string;
   signed_date: string; activation_status: string; is_activated: boolean;
   bookings_90d: number; covers_90d: number; last_booking_date: string | null;
   monthly_trend: { month: string; bookings: number; covers: number }[];
+  chorus_calls?: ChorusCall[];
+  current_booking_platform?: string;
   note?: string;
 }
 interface SimilarAccount { name: string; city: string; state: string; bookings_90d: number; covers_90d: number; }
@@ -79,30 +88,31 @@ interface RepData {
   accounts: Account[]; similar_accounts: SimilarAccount[];
 }
 
+// --- Helpers ---
+function buildAccountPayload(acct: Account): AccountContext {
+  return {
+    name: acct.name,
+    city: acct.city,
+    state: acct.state,
+    activation_status: acct.activation_status,
+    current_booking_platform: acct.current_booking_platform,
+    bookings_90d: acct.bookings_90d,
+    chorus_calls: (acct.chorus_calls ?? []).slice(0, 2).map(c => ({
+      call_date: c.call_date,
+      summary: c.summary.replace(/<[^>]+>/g, ' ').trim().slice(0, 300),
+      action_items: c.action_items,
+    })),
+  };
+}
+
+function daysSince(dateStr: string): number {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 // --- Accounts tab ---
-function AccountsTab({ repEmail }: { repEmail: string }) {
-  const [data, setData] = useState<RepData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetch(`/api/accounts?email=${encodeURIComponent(repEmail)}`)
-      .then(r => r.json())
-      .then(d => { if (d.error) setError(d.error); else setData(d); })
-      .catch(() => setError('Failed to load account data'))
-      .finally(() => setLoading(false));
-  }, [repEmail]);
-
-  if (loading) return <div className="pt-12 text-center text-sm text-gray-400">Loading your accounts…</div>;
-  if (error) return (
-    <div className="pt-12 text-center space-y-2">
-      <p className="text-sm text-gray-500">No account data found for <span className="font-mono text-xs">{repEmail}</span>.</p>
-      <p className="text-xs text-gray-400">Ask Dan to run <code className="bg-gray-100 px-1 rounded">seed_rep_accounts.py --rep {repEmail} --write</code></p>
-    </div>
-  );
-  if (!data) return null;
-
+function AccountsTab({ data }: { data: RepData }) {
   return (
     <div className="space-y-6 py-4">
       <div className="flex items-center justify-between">
@@ -115,40 +125,101 @@ function AccountsTab({ repEmail }: { repEmail: string }) {
       <div>
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Your Accounts</h2>
         <div className="space-y-3">
-          {data.accounts.map(acct => (
-            <div key={acct.name} className="border border-gray-200 rounded-xl p-4 space-y-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 text-sm">{acct.name}</p>
-                  <p className="text-xs text-gray-400">{acct.city}, {acct.state} · Signed {acct.signed_date}</p>
+          {data.accounts.map(acct => {
+            const days = acct.is_activated ? null : daysSince(acct.signed_date);
+            const nextAction = (() => {
+              if (acct.is_activated) return null;
+              if (days === null) return null;
+              if (days < 7) return { text: 'Schedule setup call', color: 'text-blue-600 bg-blue-50 border-blue-100' };
+              if (days < 14) return { text: 'Setup call overdue - check in', color: 'text-amber-700 bg-amber-50 border-amber-100' };
+              return { text: 'At risk - follow up now', color: 'text-red-700 bg-red-50 border-red-100' };
+            })();
+
+            return (
+              <div key={acct.name} className="border border-gray-200 rounded-xl p-4 space-y-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="font-medium text-gray-900 text-sm">{acct.name}</p>
+                    <p className="text-xs text-gray-400">{acct.city}, {acct.state} · Signed {acct.signed_date}</p>
+                    {acct.current_booking_platform && acct.current_booking_platform !== 'None' && (
+                      <span className="inline-block mt-1 bg-purple-100 text-purple-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                        on {acct.current_booking_platform}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      acct.is_activated
+                        ? 'bg-green-100 text-green-700'
+                        : acct.activation_status === 'Backlog'
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {acct.is_activated ? 'Activated' : acct.activation_status}
+                    </span>
+                    {days !== null && (
+                      <span className="text-xs text-gray-400">Day {days} / 30</span>
+                    )}
+                  </div>
                 </div>
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  acct.is_activated
-                    ? 'bg-green-100 text-green-700'
-                    : acct.activation_status === 'Backlog'
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-gray-100 text-gray-500'
-                }`}>
-                  {acct.is_activated ? 'Activated' : acct.activation_status}
-                </span>
+
+                {nextAction && (
+                  <div className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${nextAction.color}`}>
+                    {nextAction.text}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                    <p className="text-lg font-semibold text-gray-900">{acct.bookings_90d.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">bookings (90d)</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                    <p className="text-lg font-semibold text-gray-900">{acct.covers_90d.toLocaleString()}</p>
+                    <p className="text-xs text-gray-400">covers (90d)</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                    <p className="text-lg font-semibold text-gray-900">{acct.last_booking_date ?? '—'}</p>
+                    <p className="text-xs text-gray-400">last booking</p>
+                  </div>
+                </div>
+                {acct.note && <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{acct.note}</p>}
+
+                {acct.chorus_calls && acct.chorus_calls.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Last Chorus Calls</p>
+                    {acct.chorus_calls.map((call, idx) => {
+                      const actionItems = (() => {
+                        try { return JSON.parse(call.action_items) as string[]; }
+                        catch { return call.action_items ? [call.action_items] : []; }
+                      })();
+                      return (
+                        <div key={idx} className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5 space-y-1.5">
+                          <p className="text-xs text-blue-500 font-medium">{call.call_date}</p>
+                          {call.summary && (
+                            <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{
+                              call.summary.replace(/<br>/gi, ' ').replace(/Action Items:[\s\S]*?Meeting Summary:/, 'Meeting Summary:').trim()
+                            }</p>
+                          )}
+                          {actionItems.length > 0 && (
+                            <div className="space-y-0.5">
+                              <p className="text-xs font-medium text-gray-500">Action items:</p>
+                              <ul className="list-disc list-inside space-y-0.5">
+                                {actionItems.slice(0, 3).map((item, i) => (
+                                  <li key={i} className="text-xs text-gray-600">{item}</li>
+                                ))}
+                                {actionItems.length > 3 && <li className="text-xs text-gray-400">+{actionItems.length - 3} more</li>}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-                  <p className="text-lg font-semibold text-gray-900">{acct.bookings_90d.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">bookings (90d)</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-                  <p className="text-lg font-semibold text-gray-900">{acct.covers_90d.toLocaleString()}</p>
-                  <p className="text-xs text-gray-400">covers (90d)</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
-                  <p className="text-lg font-semibold text-gray-900">{acct.last_booking_date ?? '—'}</p>
-                  <p className="text-xs text-gray-400">last booking</p>
-                </div>
-              </div>
-              {acct.note && <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{acct.note}</p>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -225,12 +296,41 @@ function IdentityGate({ onConfirm }: { onConfirm: (email: string) => void }) {
   );
 }
 
+function parseSuggestions(text: string): { display: string; suggestions: string[] } {
+  const match = text.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+  if (!match) return { display: text, suggestions: [] };
+  const suggestions = match[1]
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean);
+  return { display: text.replace(/<suggestions>[\s\S]*?<\/suggestions>/, '').trimEnd(), suggestions };
+}
+
 // --- Chat pane (keyed per mode so history resets on tab switch) ---
-function ChatPane({ mode }: { mode: 'ask' | 'train' }) {
+function ChatPane({
+  mode,
+  repData,
+  selectedAccountIdx,
+  setSelectedAccountIdx,
+}: {
+  mode: 'ask' | 'train';
+  repData: RepData | null;
+  selectedAccountIdx: number | null;
+  setSelectedAccountIdx: (idx: number | null) => void;
+}) {
   const { messages, sendMessage, status: chatStatus } = useChat({ id: mode });
   const [input, setInput] = useState('');
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const selectedAccount = selectedAccountIdx !== null ? (repData?.accounts[selectedAccountIdx] ?? null) : null;
+
+  // Keep a ref always-current so context is fresh at send time
+  const contextRef = useRef<{ repContext?: RepContext; accountContext?: AccountContext }>({});
+  contextRef.current = {
+    repContext: repData ? { rep_name: repData.rep_name, team: repData.team, region: repData.region } : undefined,
+    accountContext: selectedAccount ? buildAccountPayload(selectedAccount) : undefined,
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -238,23 +338,75 @@ function ChatPane({ mode }: { mode: 'ask' | 'train' }) {
 
   const submit = (text: string) => {
     if (!text.trim()) return;
-    sendMessage({ role: 'user', parts: [{ type: 'text', text }] });
+    sendMessage(
+      { role: 'user', parts: [{ type: 'text', text }] },
+      { body: contextRef.current }
+    );
     setInput('');
   };
 
+  const firstName = repData?.rep_name.split(' ')[0] ?? null;
+
   return (
     <>
+      {/* Account selector strip */}
+      {repData && repData.accounts.length > 0 && (
+        <div className="border-b border-gray-100 px-4 py-2 bg-gray-50 flex-shrink-0">
+          <div className="max-w-3xl mx-auto flex items-center gap-2">
+            <span className="text-xs text-gray-400 whitespace-nowrap">Working on:</span>
+            <select
+              value={selectedAccountIdx ?? ''}
+              onChange={e => setSelectedAccountIdx(e.target.value !== '' ? Number(e.target.value) : null)}
+              className="text-xs text-gray-700 bg-transparent border-none focus:outline-none cursor-pointer flex-1"
+            >
+              <option value="">Select account for personalized tips...</option>
+              {repData.accounts.map((a, i) => (
+                <option key={i} value={i}>{a.name} - {a.activation_status}</option>
+              ))}
+            </select>
+            {selectedAccount && (
+              <span className="text-xs text-gray-400 whitespace-nowrap hidden sm:block">
+                {selectedAccount.city}, {selectedAccount.state} ·{' '}
+                {selectedAccount.current_booking_platform && selectedAccount.current_booking_platform !== 'None'
+                  ? `on ${selectedAccount.current_booking_platform}`
+                  : 'no competitor'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
         <div className="space-y-4">
           {messages.length === 0 && (
-            <div className="space-y-4 pt-6">
-              <p className="text-gray-400 text-sm text-center">
-                {mode === 'ask' ? 'In-call assist — ask anything' : 'Learn the product, objections, and case studies'}
-              </p>
+            <div className="space-y-4 pt-2">
+              {/* Greeting card */}
+              {repData && (
+                <div className="bg-orange-50 border border-orange-100 rounded-2xl px-5 py-4">
+                  <p className="font-semibold text-gray-900 text-sm">
+                    Hey {firstName} -
+                  </p>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    {repData.accounts.length === 1
+                      ? `1 account in your pipeline.`
+                      : `${repData.accounts.length} accounts in your pipeline.`
+                    }{' '}
+                    {selectedAccount
+                      ? `Working on ${selectedAccount.name}.`
+                      : 'Select an account above for a personalized pitch.'}
+                  </p>
+                </div>
+              )}
+              {!repData && (
+                <p className="text-gray-400 text-sm text-center">
+                  {mode === 'ask' ? 'In-call assist - ask anything' : 'Learn the product, objections, and case studies'}
+                </p>
+              )}
+              <p className="text-xs text-gray-400 font-medium uppercase tracking-wide px-1">Try asking</p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {SUGGESTIONS[mode].map((s) => (
                   <button key={s} onClick={() => submit(s)}
-                    className="text-left text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2.5 hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                    className="text-left text-sm text-gray-700 border border-gray-200 rounded-xl px-4 py-3 hover:bg-orange-50 hover:border-orange-200 transition-colors">
                     {s}
                   </button>
                 ))}
@@ -262,19 +414,36 @@ function ChatPane({ mode }: { mode: 'ask' | 'train' }) {
             </div>
           )}
 
-          {messages.map((message) => {
-            const text = message.parts.filter(p => p.type === 'text')
+          {messages.map((message, msgIdx) => {
+            const rawText = message.parts.filter(p => p.type === 'text')
               .map(p => (p as { type: 'text'; text: string }).text).join('');
+            const isLastAssistant = message.role === 'assistant' && !isLoading &&
+              messages.slice(msgIdx + 1).every(m => m.role !== 'assistant');
+            const { display, suggestions } = message.role === 'assistant'
+              ? parseSuggestions(rawText)
+              : { display: rawText, suggestions: [] };
             return (
-              <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {message.role === 'assistant' && (
-                  <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold mr-2 mt-1 flex-shrink-0">T</div>
-                )}
-                <div className={`max-w-[82%] rounded-2xl px-4 py-3 ${
-                  message.role === 'user' ? 'bg-orange-500 text-white text-sm' : 'bg-gray-50 border border-gray-200 text-gray-900'
-                }`}>
-                  {message.role === 'user' ? <span className="text-sm">{text}</span> : <Markdown text={text} />}
+              <div key={message.id} className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} w-full`}>
+                  {message.role === 'assistant' && (
+                    <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold mr-2 mt-1 flex-shrink-0">T</div>
+                  )}
+                  <div className={`max-w-[82%] rounded-2xl px-4 py-3 ${
+                    message.role === 'user' ? 'bg-orange-500 text-white text-sm' : 'bg-gray-50 border border-gray-200 text-gray-900'
+                  }`}>
+                    {message.role === 'user' ? <span className="text-sm">{display}</span> : <Markdown text={display} />}
+                  </div>
                 </div>
+                {isLastAssistant && suggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-2 ml-9">
+                    {suggestions.map((s, i) => (
+                      <button key={i} onClick={() => submit(s)}
+                        className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded-full px-3 py-1.5 hover:bg-orange-100 transition-colors font-medium">
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -295,10 +464,10 @@ function ChatPane({ mode }: { mode: 'ask' | 'train' }) {
         </div>
       </div>
 
-      <div className="border-t border-gray-200 px-4 py-4">
+      <div className="border-t border-gray-200 px-4 py-4 flex-shrink-0">
         <form onSubmit={e => { e.preventDefault(); submit(input); }} className="max-w-3xl mx-auto flex gap-2">
           <input value={input} onChange={e => setInput(e.target.value)}
-            placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples…' : 'Ask me to teach you anything about Toast Tables…'}
+            placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples...' : 'Ask me to teach you anything about Toast Tables...'}
             className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
             disabled={isLoading} />
           <button type="submit" disabled={isLoading || !input.trim()}
@@ -315,16 +484,28 @@ function ChatPane({ mode }: { mode: 'ask' | 'train' }) {
 export default function Home() {
   const [mode, setMode] = useState<Mode>('ask');
   const [repEmail, setRepEmail] = useState<string | null>(null);
+  const [repData, setRepData] = useState<RepData | null>(null);
+  const [selectedAccountIdx, setSelectedAccountIdx] = useState<number | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('rep_email');
     if (stored) setRepEmail(stored);
   }, []);
 
+  useEffect(() => {
+    if (!repEmail) return;
+    fetch(`/api/accounts?email=${encodeURIComponent(repEmail)}`)
+      .then(r => r.json())
+      .then(d => { if (!d.error) setRepData(d as RepData); })
+      .catch(() => {});
+  }, [repEmail]);
+
   const handleIdentity = useCallback((email: string) => {
     localStorage.setItem('rep_email', email);
     setRepEmail(email);
   }, []);
+
+  const firstName = repData?.rep_name.split(' ')[0];
 
   if (!repEmail) return (
     <div className="h-screen flex flex-col bg-white">
@@ -337,6 +518,11 @@ export default function Home() {
       <header className="border-b border-gray-200 px-4 py-3 flex-shrink-0">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
+            {firstName && (
+              <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {firstName[0].toUpperCase()}
+              </div>
+            )}
             <span className="font-semibold text-gray-900">Tables Rep Assist</span>
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Jul 2026</span>
           </div>
@@ -355,10 +541,23 @@ export default function Home() {
 
       {mode === 'accounts' ? (
         <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
-          <AccountsTab repEmail={repEmail} />
+          {repData ? (
+            <AccountsTab data={repData} />
+          ) : (
+            <div className="pt-12 text-center space-y-2">
+              <p className="text-sm text-gray-500">No account data found for <span className="font-mono text-xs">{repEmail}</span>.</p>
+              <p className="text-xs text-gray-400">Ask Dan to run <code className="bg-gray-100 px-1 rounded">seed_rep_accounts.py --rep {repEmail} --write</code></p>
+            </div>
+          )}
         </div>
       ) : (
-        <ChatPane key={mode} mode={mode} />
+        <ChatPane
+          key={mode}
+          mode={mode}
+          repData={repData}
+          selectedAccountIdx={selectedAccountIdx}
+          setSelectedAccountIdx={setSelectedAccountIdx}
+        />
       )}
     </div>
   );
