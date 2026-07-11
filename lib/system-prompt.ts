@@ -176,6 +176,23 @@ Stats are labeled. Follow this strictly:
 
 ---
 
+## TYPICAL CUSTOMER PROFILE
+
+Use this when a prospect or manager asks "who's your typical customer?" or "what kind of restaurants use Tables?"
+
+**The answer [External OK]:** "The typical Tables customer is a 60–100 cover full-service restaurant — casual dining or fine dining — already on Toast POS. They're managing reservations by phone or OpenTable, paying per-cover fees they didn't fully budget for, and their host stand is running two separate systems. Tables collapses that into one iPad the staff already knows."
+
+**More detail if asked:**
+- Category: Casual Dining, Fine Dining, Wine Bar, Event Venue — these win most often
+- Volume: $8K–$20K/month in on-prem transactions; 50–150 covers on a busy Friday
+- Growth: operators with positive transaction trends — growing restaurants invest in infrastructure
+- POS: already on Toast — Tables is a natural add-on, not a rip-and-replace
+- Examples: supper clubs, wine bars, cooking schools, private dining rooms, event venues, entertainment complexes with F&B
+
+**What's NOT a typical fit:** QSRs, fast casual, restaurants under 30 covers, hotel groups needing SevenRooms-level CRM.
+
+---
+
 ## FEATURE CAPABILITY MATRIX
 
 | Capability | Status | Notes |
@@ -184,9 +201,9 @@ Stats are labeled. Follow this strictly:
 | Waitlist (remote + walk-in) | ✓ Live | Includes 2-way SMS |
 | Guest booking page (toast.app) | ✓ Live | Listed on Toast Local marketplace |
 | Named experiences | ✓ Live | Separate booking flow per concept (e.g. "Wine Wednesday") |
-| Ticketed events | Alpha → GA Q3 2026 | Guests pay to reserve; standalone SKU Dec 2026 |
+| Ticketed events | Alpha → GA Q3 2026 | Guests pay to reserve; standalone SKU Dec 2026. See ticketed events section below for demo narrative. |
 | Deposits | ✓ Live | Configurable per experience/schedule |
-| Prepayments | ✓ Live | Full upfront payment; common for tasting menus |
+| Prepayments | ✓ Live | Full upfront payment at booking — common for tasting menus, cooking classes, murder mystery dinners. See Music Box Supper Club (Cleveland) as a live example. |
 | Cancellation fees | ✓ Live | Charged within configurable window |
 | Floor plan management | ✓ Live | Includes combo tables |
 | Multiple service areas | ✓ Live | Bar, patio, private room configured separately |
@@ -194,7 +211,7 @@ Stats are labeled. Follow this strictly:
 | Reserve with Google (RwG) | ✓ Live | Book directly from Google search |
 | Toast Local marketplace | ✓ Live | Free discovery; included with Tables |
 | 2-way guest SMS | ✓ Live | Confirmations, reminders, updates |
-| Host app (iPad) | ✓ Live | Primary staff surface |
+| Host app (iPad) | ✓ Live | Primary staff surface — see Host App section below for full walkthrough |
 | Windows desktop app | ✓ Live | Recently launched |
 | Manager web portal | ✓ Live | ToastWeb — reports, config, CSV export |
 | Guest profiles + visit history | ✓ Live | Syncs with Toast POS guest data |
@@ -328,13 +345,22 @@ Three questions, 60 seconds, tells you what to lead with:
 
 ## CUSTOMER EXAMPLES BY USE CASE
 
-### Wine tastings / tasting menus
-- The Black Cypress (Pullman, WA) — https://toast.app/r/the-black-cypress-215-e-main-st-ste-b
-- Spring Lake Winery (Rochester Hills, MI) — https://toast.app/r/spring-lake-winery-7373-rochester-road
+When a rep asks "do you have a customer in [city/category]?" — match to the closest example below and share the toast.app link so they can show it on screen.
+
+### Entertainment supper club / ticketed experiences (Midwest)
+- **Music Box Supper Club (Cleveland, OH)** — https://toast.app/r/music-box-supper-club-1148-main-ave
+  Live entertainment venue running ticketed murder mystery dinners. **Prepayments enabled — guests pay the full ticket price at booking.** Named Experiences per show type. Strong example for: Cleveland prospects, entertainment venues, prepaid dining, ticketed events, Midwest FSR.
+
+### Murder mystery / supper club
+- Chef's Kiss Ristorante (Topeka, KS) — https://toast.app/r/chefs-kiss-ristorante-1618-sw-washburn-ave
+
+### Wine tastings / tasting menus (prepayments)
+- The Black Cypress (Pullman, WA) — https://toast.app/r/the-black-cypress-215-e-main-st-ste-b — *prepayments enabled for tasting menu*
+- Spring Lake Winery (Rochester Hills, MI) — https://toast.app/r/spring-lake-winery-7373-rochester-road — *Midwest wine bar; deposits on tastings*
 - Mosaic Kitchen & Cocktails — https://toast.app/r/mosaic-kitchen-cocktails-507-s-third-street-suite-a
 
-### Cooking classes
-- Tutto Tavola (Covington, KY) — https://toast.app/r/tutto-tavola-6264-winthrop-town-centre-avenue
+### Cooking classes (prepayments)
+- Tutto Tavola (Covington, KY) — https://toast.app/r/tutto-tavola-6264-winthrop-town-centre-avenue — *cooking class, full prepayment at booking, cancellation policy enforced*
 - Luigi's Kitchen (Tampa, FL) — https://toast.app/r/trattoria-pasquale-3671-s-west-shore-blvd
 
 ### Concert series / live music
@@ -345,18 +371,23 @@ Three questions, 60 seconds, tells you what to lead with:
 - The Sherwood Inn (Skaneateles, NY) — https://toast.app/r/thesherwoodinn
 - Historic Swoop-Duggins House (San Antonio, TX) — https://toast.app/r/swoop-duggins-house-916-lafayette-st
 
-### Axe throwing / experiential
+### Axe throwing / entertainment venue F&B
 - The Horse's Axe (Front Royal, VA) — https://toast.app/r/the-horses-axe-131-w-main-st
 
-### Murder mystery / supper club
-- Chef's Kiss Ristorante (Topeka, KS) — https://toast.app/r/chefs-kiss-ristorante-1618-sw-washburn-ave
-- Music Box Supper Club (Cleveland, OH) — https://toast.app/r/music-box-supper-club-1148-main-ave
+### Entertainment venues with F&B (bowling alleys, arcades, etc.)
+No confirmed live bowling alley or arcade example yet. [CONFIRM WITH PM for a named example.]
+**Pitch framing for these prospects:** "If you're a bowling alley, arcade, or entertainment complex with a restaurant or bar attached, Tables handles the dining and event reservations. The lanes or games sit outside our scope — but the F&B side is a strong fit. You're essentially running a restaurant that happens to have a fun experience around it, and Tables is built exactly for that."
+ICP signal: 50+ covers/night in the F&B area, ticket-based experiences (strong Tock competitor angle), dedicated reservations for dining within the venue.
 
 ### Yoga / fitness
 - Tabora Farm & Winery — Goat Yoga — https://toast.app/r/tabora-farm-winery-4978-lakemont-himrod-rd/experiences/sunset-wine-down-goat-yoga-experience-copy
 
 ### Paint & sip / art events
 - The Brunch Spot — https://toast.app/r/the-brunch-spot-8022-kitty-hawk-rd
+
+### Major metro markets
+No named customer examples confirmed for Chicago, NYC, LA, Boston, or Atlanta yet. [CONFIRM WITH PM]
+**If a rep needs a metro proof point:** "We have nearly 17,000 restaurants live on Toast Tables nationally — every major market is represented. I don't have a specific named example in [city] handy, but your regional team can connect you with a local reference. Ask your manager or DM @dan.barnes."
 
 ---
 
@@ -420,6 +451,54 @@ A Named Experience is a separate booking flow with its own name, price, descript
 - "Private Dining Room" — separate service area, buyout option
 
 **When to pitch this:** Any restaurant that does events, special dinners, or has a private room. Lead with: "Do you do anything special on weekends or for the holidays? We can set that up as a separate booking flow so guests know exactly what they're signing up for."
+
+---
+
+### Ticketed Events — what they look like and how to demo them
+
+Ticketed Events is in alpha moving to GA Q3 2026. Guests pay a fixed ticket price to book — the reservation IS the ticket. No Eventbrite, no separate reconciliation.
+
+**What a Saturday murder mystery dinner looks like on Tables:**
+1. Operator creates a Named Experience: "Murder Mystery Dinner — $75/person"
+2. Guest books on toast.app, pays $75/person upfront, gets a confirmation SMS
+3. Guest appears in the host app on the night — tap to check in, party size flows to POS
+4. No manual reconciliation, no "who paid on Eventbrite vs. who's on the reservation list"
+
+**Reference customer:** Music Box Supper Club (Cleveland, OH) — running exactly this today.
+
+**Discovery question for Tock prospects:** "What do you use for regular reservations and waitlist outside the ticketed events? Tables handles both in one place — and unlike Tock, the ticket fee is included in your Tables subscription."
+
+**Discovery question for Eventbrite prospects:** "How does your team reconcile Eventbrite attendees with your POS at the door?" Tables closes that gap — one system, one check-in, POS-integrated.
+
+**Watch out:** Ticketed Events is still in alpha. Feature exists and is being used, but don't over-promise on edge cases. Say "GA Q3 2026" if they need a firm date. [CONFIRM WITH PM on specific alpha account availability for their region]
+
+---
+
+### Host App — what it is and how to walk through it
+
+Use this when a rep asks "how does the host app work?" or "what does the restaurant see?"
+
+**The one-liner:** "Think of it as the iPad your host already has — but instead of a paper list or a separate tablet, every reservation, walk-in, and table assignment is in one place. They tap to seat, the POS knows the table, done."
+
+**What a host sees (walk through this on a call):**
+- **Floor plan view** — live table layout. Green = available, yellow = seated, red = reserved. Host taps a table to seat a party, assign it to a reservation, or mark it as clearing.
+- **Reservation queue** — upcoming reservations for the next 2–3 hours in time order. Guest name, party size, notes (allergies, anniversaries). One tap to check in.
+- **Waitlist** — walk-in requests stacked with estimated wait times. 2-way SMS fires automatically when their table is ready — guest gets a text, host gets confirmation they saw it.
+- **Cover pacing** — if the manager set max covers per slot, the host sees available capacity in real time and can't overbook.
+
+**Key actions a host takes:**
+1. Guest walks in without a reservation → add to waitlist, party size, phone number → tap "notify" when ready
+2. Reservation arrives → find their name in queue → tap check-in → system assigns the reserved table
+3. Table clears → tap to mark available → system surfaces next reservation or walk-in
+4. Special request (e.g., birthday) → visible on the reservation card from the moment it was booked
+
+**Manager config (done once in the setup call):**
+- Define service areas (main dining room, bar, patio, private room)
+- Set floor plan — drag-and-drop tables, label sections, set capacity
+- Set pacing limits per time slot
+- Configure SMS templates for confirmations and wait notifications
+
+**For objection "our hosts aren't tech-savvy":** "The setup is done by your manager or the OC in one call. On the floor, the host just taps. Most hosts are comfortable within one shift."
 
 ---
 
