@@ -1,10 +1,11 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
-type Mode = 'ask' | 'train';
+type Mode = 'ask' | 'train' | 'accounts';
 
+// --- Markdown renderer ---
 function Markdown({ text }: { text: string }) {
   const lines = text.split('\n');
   const elements: React.ReactNode[] = [];
@@ -12,14 +13,11 @@ function Markdown({ text }: { text: string }) {
 
   const renderInline = (raw: string): React.ReactNode[] => {
     const parts: React.ReactNode[] = [];
-    let remaining = raw;
+    let remaining = raw
+      .replace(/\[CONFIRM WITH PM\]/g, '___CONFIRM___')
+      .replace(/\[External OK\]/g, '___EXTOK___')
+      .replace(/\[Internal only\]/g, '___INTONLY___');
     let key = 0;
-
-    // Badge tags
-    remaining = remaining.replace(/\[CONFIRM WITH PM\]/g, '___CONFIRM___');
-    remaining = remaining.replace(/\[External OK\]/g, '___EXTOK___');
-    remaining = remaining.replace(/\[Internal only\]/g, '___INTONLY___');
-
     const segments = remaining.split(/(\*\*[^*]+\*\*|`[^`]+`|___CONFIRM___|___EXTOK___|___INTONLY___)/);
     for (const seg of segments) {
       if (!seg) continue;
@@ -42,64 +40,144 @@ function Markdown({ text }: { text: string }) {
 
   while (i < lines.length) {
     const line = lines[i];
-
-    if (!line.trim()) {
-      elements.push(<div key={i} className="h-2" />);
-      i++;
-      continue;
-    }
-
-    if (line.startsWith('## ')) {
-      elements.push(<p key={i} className="font-semibold text-gray-900 text-sm mt-3 mb-1">{line.slice(3)}</p>);
-      i++;
-      continue;
-    }
-
-    if (line.startsWith('### ')) {
-      elements.push(<p key={i} className="font-medium text-gray-700 text-sm mt-2">{line.slice(4)}</p>);
-      i++;
-      continue;
-    }
-
+    if (!line.trim()) { elements.push(<div key={i} className="h-2" />); i++; continue; }
+    if (line.startsWith('## ')) { elements.push(<p key={i} className="font-semibold text-gray-900 text-sm mt-3 mb-1">{line.slice(3)}</p>); i++; continue; }
+    if (line.startsWith('### ')) { elements.push(<p key={i} className="font-medium text-gray-700 text-sm mt-2">{line.slice(4)}</p>); i++; continue; }
     if (line.startsWith('> ')) {
-      elements.push(
-        <blockquote key={i} className="border-l-2 border-orange-300 pl-3 text-gray-600 italic text-sm my-1">
-          {renderInline(line.slice(2))}
-        </blockquote>
-      );
-      i++;
-      continue;
+      elements.push(<blockquote key={i} className="border-l-2 border-orange-300 pl-3 text-gray-600 italic text-sm my-1">{renderInline(line.slice(2))}</blockquote>);
+      i++; continue;
     }
-
     if (line.match(/^[-*] /)) {
-      const listItems: React.ReactNode[] = [];
-      while (i < lines.length && lines[i].match(/^[-*] /)) {
-        listItems.push(<li key={i}>{renderInline(lines[i].slice(2))}</li>);
-        i++;
-      }
-      elements.push(<ul key={`ul-${i}`} className="list-disc list-inside space-y-0.5 text-sm my-1 text-gray-800">{listItems}</ul>);
+      const items: React.ReactNode[] = [];
+      while (i < lines.length && lines[i].match(/^[-*] /)) { items.push(<li key={i}>{renderInline(lines[i].slice(2))}</li>); i++; }
+      elements.push(<ul key={`ul-${i}`} className="list-disc list-inside space-y-0.5 text-sm my-1 text-gray-800">{items}</ul>);
       continue;
     }
-
     if (line.match(/^\d+\. /)) {
-      const listItems: React.ReactNode[] = [];
-      while (i < lines.length && lines[i].match(/^\d+\. /)) {
-        const content = lines[i].replace(/^\d+\. /, '');
-        listItems.push(<li key={i}>{renderInline(content)}</li>);
-        i++;
-      }
-      elements.push(<ol key={`ol-${i}`} className="list-decimal list-inside space-y-0.5 text-sm my-1 text-gray-800">{listItems}</ol>);
+      const items: React.ReactNode[] = [];
+      while (i < lines.length && lines[i].match(/^\d+\. /)) { items.push(<li key={i}>{renderInline(lines[i].replace(/^\d+\. /, ''))}</li>); i++; }
+      elements.push(<ol key={`ol-${i}`} className="list-decimal list-inside space-y-0.5 text-sm my-1 text-gray-800">{items}</ol>);
       continue;
     }
-
     elements.push(<p key={i} className="text-sm leading-relaxed">{renderInline(line)}</p>);
     i++;
   }
-
   return <div className="space-y-0.5">{elements}</div>;
 }
 
-const SUGGESTIONS: Record<Mode, string[]> = {
+// --- Types ---
+interface Account {
+  name: string; city: string; state: string;
+  signed_date: string; activation_status: string; is_activated: boolean;
+  bookings_90d: number; covers_90d: number; last_booking_date: string | null;
+  monthly_trend: { month: string; bookings: number; covers: number }[];
+  note?: string;
+}
+interface SimilarAccount { name: string; city: string; state: string; bookings_90d: number; covers_90d: number; }
+interface RepData {
+  rep_name: string; team: string; region: string; seeded_at: string;
+  accounts: Account[]; similar_accounts: SimilarAccount[];
+}
+
+// --- Accounts tab ---
+function AccountsTab({ repEmail }: { repEmail: string }) {
+  const [data, setData] = useState<RepData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/accounts?email=${encodeURIComponent(repEmail)}`)
+      .then(r => r.json())
+      .then(d => { if (d.error) setError(d.error); else setData(d); })
+      .catch(() => setError('Failed to load account data'))
+      .finally(() => setLoading(false));
+  }, [repEmail]);
+
+  if (loading) return <div className="pt-12 text-center text-sm text-gray-400">Loading your accounts…</div>;
+  if (error) return (
+    <div className="pt-12 text-center space-y-2">
+      <p className="text-sm text-gray-500">No account data found for <span className="font-mono text-xs">{repEmail}</span>.</p>
+      <p className="text-xs text-gray-400">Ask Dan to run <code className="bg-gray-100 px-1 rounded">seed_rep_accounts.py --rep {repEmail} --write</code></p>
+    </div>
+  );
+  if (!data) return null;
+
+  return (
+    <div className="space-y-6 py-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-semibold text-gray-900">{data.rep_name}</p>
+          <p className="text-xs text-gray-400">{data.team} · {data.region} · Data: {data.seeded_at}</p>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Your Accounts</h2>
+        <div className="space-y-3">
+          {data.accounts.map(acct => (
+            <div key={acct.name} className="border border-gray-200 rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="font-medium text-gray-900 text-sm">{acct.name}</p>
+                  <p className="text-xs text-gray-400">{acct.city}, {acct.state} · Signed {acct.signed_date}</p>
+                </div>
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  acct.is_activated
+                    ? 'bg-green-100 text-green-700'
+                    : acct.activation_status === 'Backlog'
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {acct.is_activated ? 'Activated' : acct.activation_status}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                  <p className="text-lg font-semibold text-gray-900">{acct.bookings_90d.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">bookings (90d)</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                  <p className="text-lg font-semibold text-gray-900">{acct.covers_90d.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">covers (90d)</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-2.5 text-center">
+                  <p className="text-lg font-semibold text-gray-900">{acct.last_booking_date ?? '—'}</p>
+                  <p className="text-xs text-gray-400">last booking</p>
+                </div>
+              </div>
+              {acct.note && <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">{acct.note}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {data.similar_accounts.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Similar Active Accounts in Your Region</h2>
+          <p className="text-xs text-gray-400 mb-3">Use these as proof points — "Here's what a similar restaurant nearby is doing with Tables."</p>
+          <div className="space-y-2">
+            {data.similar_accounts.map(a => (
+              <div key={a.name} className="flex items-center justify-between border border-gray-100 rounded-lg px-4 py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">{a.name}</p>
+                  <p className="text-xs text-gray-400">{a.city}, {a.state}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-gray-900">{a.bookings_90d.toLocaleString()}</p>
+                  <p className="text-xs text-gray-400">bookings / 90d</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Suggestions ---
+const SUGGESTIONS: Record<'ask' | 'train', string[]> = {
   ask: [
     'What do I say when a prospect uses OpenTable?',
     'How do I qualify a prospect before pitching?',
@@ -118,22 +196,69 @@ const SUGGESTIONS: Record<Mode, string[]> = {
   ],
 };
 
+// --- Identity prompt ---
+function IdentityGate({ onConfirm }: { onConfirm: (email: string) => void }) {
+  const [email, setEmail] = useState('');
+  return (
+    <div className="flex-1 flex items-center justify-center px-4">
+      <div className="max-w-sm w-full space-y-4">
+        <div className="text-center space-y-1">
+          <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white font-bold text-lg mx-auto">T</div>
+          <p className="font-semibold text-gray-900">Tables Rep Assist</p>
+          <p className="text-sm text-gray-400">Enter your Toast email to get started</p>
+        </div>
+        <form onSubmit={e => { e.preventDefault(); if (email.includes('@')) onConfirm(email.toLowerCase().trim()); }}
+          className="space-y-3">
+          <input
+            type="email" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="you@toasttab.com"
+            className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+            autoFocus
+          />
+          <button type="submit" disabled={!email.includes('@')}
+            className="w-full py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors">
+            Continue
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- Main ---
 export default function Home() {
   const { messages, sendMessage, status: chatStatus } = useChat();
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<Mode>('ask');
+  const [repEmail, setRepEmail] = useState<string | null>(null);
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const stored = localStorage.getItem('rep_email');
+    if (stored) setRepEmail(stored);
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  const handleIdentity = useCallback((email: string) => {
+    localStorage.setItem('rep_email', email);
+    setRepEmail(email);
+  }, []);
 
   const submit = (text: string) => {
     if (!text.trim()) return;
     sendMessage({ role: 'user', parts: [{ type: 'text', text }] });
     setInput('');
   };
+
+  if (!repEmail) return (
+    <div className="min-h-screen flex flex-col bg-white">
+      <IdentityGate onConfirm={handleIdentity} />
+    </div>
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -144,108 +269,87 @@ export default function Home() {
             <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Jul 2026</span>
           </div>
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            {(['ask', 'train'] as Mode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
+            {(['ask', 'train', 'accounts'] as Mode[]).map((m) => (
+              <button key={m} onClick={() => setMode(m)}
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-colors capitalize ${
                   mode === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {m === 'ask' ? 'Ask' : 'Train'}
+                }`}>
+                {m === 'accounts' ? 'My Accounts' : m === 'ask' ? 'Ask' : 'Train'}
               </button>
             ))}
           </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 max-w-3xl mx-auto w-full">
-        {messages.length === 0 && (
-          <div className="space-y-4 pt-6">
-            <p className="text-gray-400 text-sm text-center">
-              {mode === 'ask' ? 'In-call assist — ask anything' : 'Learn the product, objections, and case studies'}
-            </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {SUGGESTIONS[mode].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => submit(s)}
-                  className="text-left text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2.5 hover:bg-gray-50 hover:border-gray-300 transition-colors"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {messages.map((message) => {
-          const text = message.parts
-            .filter((p) => p.type === 'text')
-            .map((p) => (p as { type: 'text'; text: string }).text)
-            .join('');
-          return (
-            <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {message.role === 'assistant' && (
-                <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold mr-2 mt-1 flex-shrink-0">
-                  T
+      <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
+        {mode === 'accounts' ? (
+          <AccountsTab repEmail={repEmail} />
+        ) : (
+          <div className="space-y-4">
+            {messages.length === 0 && (
+              <div className="space-y-4 pt-6">
+                <p className="text-gray-400 text-sm text-center">
+                  {mode === 'ask' ? 'In-call assist — ask anything' : 'Learn the product, objections, and case studies'}
+                </p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {SUGGESTIONS[mode].map((s) => (
+                    <button key={s} onClick={() => submit(s)}
+                      className="text-left text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2.5 hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                      {s}
+                    </button>
+                  ))}
                 </div>
-              )}
-              <div
-                className={`max-w-[82%] rounded-2xl px-4 py-3 ${
-                  message.role === 'user'
-                    ? 'bg-orange-500 text-white text-sm'
-                    : 'bg-gray-50 border border-gray-200 text-gray-900'
-                }`}
-              >
-                {message.role === 'user' ? (
-                  <span className="text-sm">{text}</span>
-                ) : (
-                  <Markdown text={text} />
-                )}
               </div>
-            </div>
-          );
-        })}
+            )}
 
-        {isLoading && (
-          <div className="flex justify-start items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-              T
-            </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+            {messages.map((message) => {
+              const text = message.parts.filter(p => p.type === 'text')
+                .map(p => (p as { type: 'text'; text: string }).text).join('');
+              return (
+                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {message.role === 'assistant' && (
+                    <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold mr-2 mt-1 flex-shrink-0">T</div>
+                  )}
+                  <div className={`max-w-[82%] rounded-2xl px-4 py-3 ${
+                    message.role === 'user' ? 'bg-orange-500 text-white text-sm' : 'bg-gray-50 border border-gray-200 text-gray-900'
+                  }`}>
+                    {message.role === 'user' ? <span className="text-sm">{text}</span> : <Markdown text={text} />}
+                  </div>
+                </div>
+              );
+            })}
+
+            {isLoading && (
+              <div className="flex justify-start items-center gap-2">
+                <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">T</div>
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+            <div ref={bottomRef} />
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-gray-200 px-4 py-4">
-        <form
-          onSubmit={(e) => { e.preventDefault(); submit(input); }}
-          className="max-w-3xl mx-auto flex gap-2"
-        >
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples…' : 'Ask me to teach you anything about Toast Tables…'}
-            className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors"
-          >
-            Send
-          </button>
-        </form>
-      </div>
+      {mode !== 'accounts' && (
+        <div className="border-t border-gray-200 px-4 py-4">
+          <form onSubmit={e => { e.preventDefault(); submit(input); }} className="max-w-3xl mx-auto flex gap-2">
+            <input value={input} onChange={e => setInput(e.target.value)}
+              placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples…' : 'Ask me to teach you anything about Toast Tables…'}
+              className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+              disabled={isLoading} />
+            <button type="submit" disabled={isLoading || !input.trim()}
+              className="px-4 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors">
+              Send
+            </button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

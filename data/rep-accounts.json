@@ -1,0 +1,58 @@
+{
+  "_meta": {
+    "description": "Seeded account data per rep. Keyed by Toast email. Add a rep by running scripts/seed_rep_accounts.py --rep <email>.",
+    "last_updated": "2026-07-11",
+    "how_to_add_rep": "Run: python3 scripts/seed_rep_accounts.py --rep <email> from tables-pm-workspace. Paste the output JSON block here under the rep's email key."
+  },
+  "tanguy.delannoy@toasttab.com": {
+    "rep_name": "Tanguy Delannoy",
+    "team": "Inside Sales",
+    "region": "Inside - Avantini",
+    "seeded_at": "2026-07-11",
+    "accounts": [
+      {
+        "name": "The Dorchester Supper Club",
+        "city": "Dorchester",
+        "state": "IA",
+        "toast_guid": "07edf445-ef55-44ee-a2cc-d5c030b071e8",
+        "signed_date": "2026-07-06",
+        "activation_status": "Backlog",
+        "is_activated": false,
+        "bookings_90d": 0,
+        "covers_90d": 0,
+        "last_booking_date": null,
+        "monthly_trend": [],
+        "note": "Signed July 6. Setup call not yet completed. Target: first booking within 30 days."
+      }
+    ],
+    "similar_accounts": [
+      {
+        "name": "FD's Grillhouse Springfield",
+        "city": "Springfield",
+        "state": "MO",
+        "bookings_90d": 25402,
+        "covers_90d": 74262,
+        "last_booking": "2026-07-09",
+        "distance_note": "Missouri — closest active Midwest account"
+      },
+      {
+        "name": "Moosejaw Pizza & Dells Brewing Co",
+        "city": "Wisconsin Dells",
+        "state": "WI",
+        "bookings_90d": 26405,
+        "covers_90d": 116579,
+        "last_booking": "2026-07-09",
+        "distance_note": "Wisconsin — high-volume similar market"
+      },
+      {
+        "name": "Cafe Benelux",
+        "city": "Milwaukee",
+        "state": "WI",
+        "bookings_90d": 31466,
+        "covers_90d": 101395,
+        "last_booking": "2026-07-09",
+        "distance_note": "Wisconsin — largest volume in region"
+      }
+    ]
+  }
+}
