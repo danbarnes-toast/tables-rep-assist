@@ -225,28 +225,16 @@ function IdentityGate({ onConfirm }: { onConfirm: (email: string) => void }) {
   );
 }
 
-// --- Main ---
-export default function Home() {
-  const { messages, sendMessage, status: chatStatus } = useChat();
+// --- Chat pane (keyed per mode so history resets on tab switch) ---
+function ChatPane({ mode }: { mode: 'ask' | 'train' }) {
+  const { messages, sendMessage, status: chatStatus } = useChat({ id: mode });
   const [input, setInput] = useState('');
-  const [mode, setMode] = useState<Mode>('ask');
-  const [repEmail, setRepEmail] = useState<string | null>(null);
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const stored = localStorage.getItem('rep_email');
-    if (stored) setRepEmail(stored);
-  }, []);
-
-  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
-
-  const handleIdentity = useCallback((email: string) => {
-    localStorage.setItem('rep_email', email);
-    setRepEmail(email);
-  }, []);
 
   const submit = (text: string) => {
     if (!text.trim()) return;
@@ -254,15 +242,99 @@ export default function Home() {
     setInput('');
   };
 
+  return (
+    <>
+      <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
+        <div className="space-y-4">
+          {messages.length === 0 && (
+            <div className="space-y-4 pt-6">
+              <p className="text-gray-400 text-sm text-center">
+                {mode === 'ask' ? 'In-call assist — ask anything' : 'Learn the product, objections, and case studies'}
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {SUGGESTIONS[mode].map((s) => (
+                  <button key={s} onClick={() => submit(s)}
+                    className="text-left text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2.5 hover:bg-gray-50 hover:border-gray-300 transition-colors">
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {messages.map((message) => {
+            const text = message.parts.filter(p => p.type === 'text')
+              .map(p => (p as { type: 'text'; text: string }).text).join('');
+            return (
+              <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {message.role === 'assistant' && (
+                  <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold mr-2 mt-1 flex-shrink-0">T</div>
+                )}
+                <div className={`max-w-[82%] rounded-2xl px-4 py-3 ${
+                  message.role === 'user' ? 'bg-orange-500 text-white text-sm' : 'bg-gray-50 border border-gray-200 text-gray-900'
+                }`}>
+                  {message.role === 'user' ? <span className="text-sm">{text}</span> : <Markdown text={text} />}
+                </div>
+              </div>
+            );
+          })}
+
+          {isLoading && (
+            <div className="flex justify-start items-center gap-2">
+              <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">T</div>
+              <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
+                <div className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      <div className="border-t border-gray-200 px-4 py-4">
+        <form onSubmit={e => { e.preventDefault(); submit(input); }} className="max-w-3xl mx-auto flex gap-2">
+          <input value={input} onChange={e => setInput(e.target.value)}
+            placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples…' : 'Ask me to teach you anything about Toast Tables…'}
+            className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+            disabled={isLoading} />
+          <button type="submit" disabled={isLoading || !input.trim()}
+            className="px-4 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors">
+            Send
+          </button>
+        </form>
+      </div>
+    </>
+  );
+}
+
+// --- Main ---
+export default function Home() {
+  const [mode, setMode] = useState<Mode>('ask');
+  const [repEmail, setRepEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('rep_email');
+    if (stored) setRepEmail(stored);
+  }, []);
+
+  const handleIdentity = useCallback((email: string) => {
+    localStorage.setItem('rep_email', email);
+    setRepEmail(email);
+  }, []);
+
   if (!repEmail) return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="h-screen flex flex-col bg-white">
       <IdentityGate onConfirm={handleIdentity} />
     </div>
   );
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
-      <header className="border-b border-gray-200 px-4 py-3">
+      <header className="border-b border-gray-200 px-4 py-3 flex-shrink-0">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-gray-900">Tables Rep Assist</span>
@@ -271,7 +343,7 @@ export default function Home() {
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
             {(['ask', 'train', 'accounts'] as Mode[]).map((m) => (
               <button key={m} onClick={() => setMode(m)}
-                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors capitalize ${
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
                   mode === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                 }`}>
                 {m === 'accounts' ? 'My Accounts' : m === 'ask' ? 'Ask' : 'Train'}
@@ -281,74 +353,12 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
-        {mode === 'accounts' ? (
+      {mode === 'accounts' ? (
+        <div className="flex-1 overflow-y-auto px-4 py-6 max-w-3xl mx-auto w-full">
           <AccountsTab repEmail={repEmail} />
-        ) : (
-          <div className="space-y-4">
-            {messages.length === 0 && (
-              <div className="space-y-4 pt-6">
-                <p className="text-gray-400 text-sm text-center">
-                  {mode === 'ask' ? 'In-call assist — ask anything' : 'Learn the product, objections, and case studies'}
-                </p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {SUGGESTIONS[mode].map((s) => (
-                    <button key={s} onClick={() => submit(s)}
-                      className="text-left text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2.5 hover:bg-gray-50 hover:border-gray-300 transition-colors">
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {messages.map((message) => {
-              const text = message.parts.filter(p => p.type === 'text')
-                .map(p => (p as { type: 'text'; text: string }).text).join('');
-              return (
-                <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {message.role === 'assistant' && (
-                    <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold mr-2 mt-1 flex-shrink-0">T</div>
-                  )}
-                  <div className={`max-w-[82%] rounded-2xl px-4 py-3 ${
-                    message.role === 'user' ? 'bg-orange-500 text-white text-sm' : 'bg-gray-50 border border-gray-200 text-gray-900'
-                  }`}>
-                    {message.role === 'user' ? <span className="text-sm">{text}</span> : <Markdown text={text} />}
-                  </div>
-                </div>
-              );
-            })}
-
-            {isLoading && (
-              <div className="flex justify-start items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">T</div>
-                <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:300ms]" />
-                  </div>
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-        )}
-      </div>
-
-      {mode !== 'accounts' && (
-        <div className="border-t border-gray-200 px-4 py-4">
-          <form onSubmit={e => { e.preventDefault(); submit(input); }} className="max-w-3xl mx-auto flex gap-2">
-            <input value={input} onChange={e => setInput(e.target.value)}
-              placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples…' : 'Ask me to teach you anything about Toast Tables…'}
-              className="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent"
-              disabled={isLoading} />
-            <button type="submit" disabled={isLoading || !input.trim()}
-              className="px-4 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-colors">
-              Send
-            </button>
-          </form>
         </div>
+      ) : (
+        <ChatPane key={mode} mode={mode} />
       )}
     </div>
   );
