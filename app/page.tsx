@@ -1,13 +1,17 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function Home() {
   const { messages, sendMessage, status: chatStatus } = useChat();
   const [input, setInput] = useState('');
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isLoading]);
 
   return (
     <div className="min-h-screen flex flex-col bg-white">
@@ -33,7 +37,9 @@ export default function Home() {
               ].map((suggestion) => (
                 <button
                   key={suggestion}
-                  onClick={() => setInput(suggestion)}
+                  onClick={() => {
+                    sendMessage({ role: 'user', parts: [{ type: 'text', text: suggestion }] });
+                  }}
                   className="text-left text-sm text-gray-600 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors"
                 >
                   {suggestion}
