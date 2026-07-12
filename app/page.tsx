@@ -2,6 +2,8 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import type { RepContext, AccountContext } from '@/lib/system-prompt';
 import { THEMES, getThemeForDate, applyTheme, type Theme } from '@/lib/themes';
 import {
@@ -249,9 +251,131 @@ function ExecBadge({ exec }: { exec: NonNullable<Theme['exec']> }) {
   );
 }
 
+// ── Streak tracking ────────────────────────────────────────────────────────
+function useStreak(): number {
+  const [streak, setStreak] = useState(0);
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const last = localStorage.getItem('rep_streak_last');
+    const count = parseInt(localStorage.getItem('rep_streak_count') ?? '0', 10);
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    let next = 1;
+    if (last === today) next = count;
+    else if (last === yesterday) next = count + 1;
+    localStorage.setItem('rep_streak_last', today);
+    localStorage.setItem('rep_streak_count', String(next));
+    setStreak(next);
+  }, []);
+  return streak;
+}
+
+// ── Confetti burst ─────────────────────────────────────────────────────────
+function ConfettiBurst({ visible, onDone }: { visible: boolean; onDone: () => void }) {
+  useEffect(() => {
+    if (visible) { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }
+  }, [visible, onDone]);
+  if (!visible) return null;
+  const pieces = Array.from({ length: 32 }, (_, i) => {
+    const hue = (i * 37) % 360;
+    const x = -40 + (i * 83) % 120;
+    const delay = (i * 60) % 800;
+    const size = 6 + (i % 4) * 3;
+    return { hue, x, delay, size };
+  });
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 9999 }}>
+      <style>{`
+        @keyframes confetti-fall {
+          0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
+      {pieces.map((p, i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          top: 0,
+          left: `calc(50% + ${p.x}px)`,
+          width: p.size,
+          height: p.size,
+          borderRadius: i % 3 === 0 ? '50%' : 2,
+          background: `hsl(${p.hue}, 80%, 55%)`,
+          animation: `confetti-fall ${1.4 + (p.delay / 1000)}s ease-in forwards`,
+          animationDelay: `${p.delay}ms`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Onboarding banner (first login only) ──────────────────────────────────
+const ONBOARDING_STEPS = [
+  { icon: '1', label: 'Pick an account', detail: 'Go to Pipeline, select a prospect.' },
+  { icon: '2', label: 'Generate a prep brief', detail: 'Hit Prep and run a brief before your call.' },
+  { icon: '3', label: 'Ask anything', detail: 'Use Ask to handle objections live.' },
+];
+
+function OnboardingBanner({ onDismiss, onGo }: { onDismiss: () => void; onGo: (mode: Mode) => void }) {
+  return (
+    <div style={{
+      position: 'fixed', top: 56, left: '50%', transform: 'translateX(-50%)',
+      width: 'calc(100% - 32px)', maxWidth: 700, zIndex: 400,
+      background: 'var(--bg-card)', border: '1px solid var(--accent-glow)',
+      borderRadius: 14, padding: '14px 18px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+      display: 'flex', flexDirection: 'column', gap: 10,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Three things to try first</p>
+        <button onClick={onDismiss} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}>x</button>
+      </div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        {ONBOARDING_STEPS.map((s, i) => (
+          <button key={i}
+            onClick={() => { onGo(i === 0 ? 'accounts' : i === 1 ? 'prep' : 'ask'); onDismiss(); }}
+            style={{ flex: 1, background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent)', color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
+              <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{s.label}</p>
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{s.detail}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Daily greeting + quote ─────────────────────────────────────────────────
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SALES_QUOTES = [
+  { quote: "Every call is an opportunity to change someone's business.", attr: 'field wisdom' },
+  { quote: "The best close is a genuine conversation.", attr: 'sales lore' },
+  { quote: "Preparation is the close that happens before the call.", attr: 'field wisdom' },
+  { quote: "Objections are just requests for more information.", attr: 'sales lore' },
+  { quote: "You don't close deals. You help people make decisions.", attr: 'field wisdom' },
+  { quote: "The rep who listens most wins most.", attr: 'field wisdom' },
+  { quote: "Every no gets you closer to a yes.", attr: 'sales lore' },
+];
+const SPARKS = ['Have a great one.', "Let's go.", 'Go get it.', 'Make it count.', 'Today could be the day.'];
+
+function getDailyContent(date: Date) {
+  const dayIdx = date.getDay();
+  const seed = date.getFullYear() * 1000 + Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86400000);
+  const hour = date.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  return {
+    dayName: DAYS[dayIdx],
+    greeting,
+    quote: SALES_QUOTES[seed % SALES_QUOTES.length],
+    spark: SPARKS[seed % SPARKS.length],
+  };
+}
+
 // ── Identity gate ──────────────────────────────────────────────────────────
 function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) => void; activeTheme: Theme }) {
   const [email, setEmail] = useState('');
+  const [daily] = useState(() => getDailyContent(new Date()));
+
   return (
     <div style={{
       flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
@@ -267,12 +391,15 @@ function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) =
       }} />
 
       <div style={{
-        position: 'relative', width: '100%', maxWidth: 360,
+        position: 'relative', width: '100%', maxWidth: 380,
         background: 'var(--bg-card)', border: '1px solid var(--border)',
         borderRadius: 20, padding: 32, boxShadow: '0 16px 48px rgba(0,0,0,0.12)',
       }}>
-        {/* Logo area */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        {/* Day + greeting */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <p style={{ fontSize: 11, color: 'var(--accent)', fontFamily: 'monospace', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
+            {daily.dayName}
+          </p>
           <div style={{
             width: 52, height: 52, borderRadius: '50%',
             background: 'var(--accent-light)', border: '1px solid var(--accent-glow)',
@@ -280,11 +407,11 @@ function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) =
           }}>
             <ToastFlame size={26} />
           </div>
-          <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-            Tables Rep Assist
+          <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+            {daily.greeting}
           </p>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-            Enter your Toast email to get started
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 0 }}>
+            Enter your Toast email to continue
           </p>
         </div>
 
@@ -301,7 +428,17 @@ function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) =
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', marginTop: 16, fontSize: 11, color: 'var(--text-tertiary)' }}>
+        {/* Quote */}
+        <div style={{ marginTop: 20, padding: '12px 14px', background: 'var(--bg-strip)', borderRadius: 10, borderLeft: '2px solid var(--accent)' }}>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 4 }}>
+            "{daily.quote.quote}"
+          </p>
+          <p style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+            {daily.spark}
+          </p>
+        </div>
+
+        <p style={{ textAlign: 'center', marginTop: 14, fontSize: 11, color: 'var(--text-tertiary)' }}>
           {activeTheme.emoji} {activeTheme.name} edition
         </p>
       </div>
@@ -716,16 +853,28 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {repData && (
                 <div className="glow-card" style={{ padding: '16px 20px' }}>
-                  <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, marginBottom: 2 }}>Hey {firstName},</p>
-                  {(repData.title || repData.region) && (
-                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>
-                      {[repData.title, repData.region].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    {repData.accounts.length === 1 ? `1 account in your pipeline.` : `${repData.accounts.length} accounts in your pipeline.`}{' '}
-                    {selected ? `Working on ${selected.name}.` : 'Select an account above for a personalized pitch.'}
-                  </p>
+                  <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                    {repData.slack_photo && (
+                      <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', border: '2px solid var(--accent-glow)', flexShrink: 0 }}>
+                        <img src={repData.slack_photo} alt={firstName ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 15, marginBottom: 3 }}>
+                        {getDailyContent(new Date()).greeting}, {firstName}
+                      </p>
+                      {(repData.title || repData.region) && (
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 7 }}>
+                          {repData.title && <span style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'monospace', background: 'var(--accent-light)', border: '1px solid var(--accent-glow)', borderRadius: 5, padding: '1px 7px' }}>{repData.title}</span>}
+                          {repData.region && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'monospace', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 5, padding: '1px 7px' }}>{repData.region}</span>}
+                        </div>
+                      )}
+                      <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                        {repData.accounts.length === 1 ? `1 account in your pipeline.` : `${repData.accounts.length} accounts in your pipeline.`}{' '}
+                        {selected ? `Working on ${selected.name}.` : 'Select an account above for a personalized pitch.'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
               <p style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', padding: '0 2px' }}>Try asking</p>
@@ -1091,17 +1240,23 @@ function ROICalculator() {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 export default function Home() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>('ask');
-  const [repEmail, setRepEmail] = useState<string | null>(null);
   const [repData, setRepData] = useState<RepData | null>(null);
   const [selectedAccountIdx, setSelectedAccountIdx] = useState<number | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [activeTheme, setActiveTheme] = useState<Theme>(() => getThemeForDate(new Date()));
 
+  const repEmail = session?.user?.email ?? null;
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (status === 'unauthenticated') router.push('/login');
+  }, [status, router]);
+
   // Load persisted preferences
   useEffect(() => {
-    const stored = localStorage.getItem('rep_email');
-    if (stored) setRepEmail(stored);
     const dark = localStorage.getItem('rep_dark') === '1';
     const themeId = localStorage.getItem('rep_theme');
     setIsDark(dark);
@@ -1124,11 +1279,6 @@ export default function Home() {
       .catch(() => {});
   }, [repEmail]);
 
-  const handleIdentity = useCallback((email: string) => {
-    localStorage.setItem('rep_email', email);
-    setRepEmail(email);
-  }, []);
-
   const toggleDark = useCallback(() => {
     setIsDark(d => { localStorage.setItem('rep_dark', d ? '0' : '1'); return !d; });
   }, []);
@@ -1140,9 +1290,11 @@ export default function Home() {
 
   const firstName = repData?.rep_name.split(' ')[0];
 
-  if (!repEmail) return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <IdentityGate onConfirm={handleIdentity} activeTheme={activeTheme} />
+  // Show spinner while session loads
+  if (status === 'loading' || status === 'unauthenticated') return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a' }}>
+      <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid #FF4C00', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
@@ -1187,13 +1339,19 @@ export default function Home() {
 
           {/* Right: rep + theme controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            {firstName && (
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)' }}>
+            {(firstName || session?.user?.image) && (
+              <button
+                title={`Signed in as ${repEmail ?? ''} — click to sign out`}
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)', cursor: 'pointer', padding: 0 }}
+              >
                 {repData?.slack_photo
                   ? <img src={repData.slack_photo} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{firstName[0].toUpperCase()}</span>
+                  : session?.user?.image
+                  ? <img src={session.user.image} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{(firstName ?? repEmail ?? '?')[0].toUpperCase()}</span>
                 }
-              </div>
+              </button>
             )}
             <ThemePicker activeTheme={activeTheme} isDark={isDark} onTheme={setTheme} onToggleDark={toggleDark} />
           </div>
