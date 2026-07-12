@@ -504,7 +504,7 @@ function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx }: {
       )}
 
       {!selected && !loading && !brief && (
-        <div style={{ paddingTop: 16, textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)' }}>Select an account above to generate a brief.</div>
+        <div style={{ paddingTop: 16, textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)' }}>Click an account above to generate a brief.</div>
       )}
     </div>
   );
@@ -516,7 +516,7 @@ function AccountsTab({ data }: { data: RepData }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div>
         <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{data.rep_name}</p>
-        <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{data.team} · {data.region} · Data: {data.seeded_at}</p>
+        <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{data.team} · {data.region} · Updated {new Date(data.seeded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
       </div>
 
       <div>
@@ -643,7 +643,7 @@ const SUGGESTIONS: Record<'ask' | 'train', string[]> = {
     'What makes Tables different from SevenRooms?',
   ],
   train: [
-    'Give me an intro to Toast Tables — what is it and who buys it?',
+    'Give me an intro to Toast Tables: what is it and who buys it?',
     'Walk me through a full sales qualification conversation',
     'Teach me the OpenTable competitive objection cold',
     'What are the most common reasons deals stall?',
@@ -710,7 +710,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {repData && (
                 <div className="glow-card" style={{ padding: '16px 20px' }}>
-                  <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, marginBottom: 4 }}>Hey {firstName} -</p>
+                  <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, marginBottom: 4 }}>Hey {firstName},</p>
                   <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                     {repData.accounts.length === 1 ? `1 account in your pipeline.` : `${repData.accounts.length} accounts in your pipeline.`}{' '}
                     {selected ? `Working on ${selected.name}.` : 'Select an account above for a personalized pitch.'}
@@ -935,8 +935,8 @@ function ROICalculator() {
       {/* Section 1: Cost relief */}
       <div style={sectionStyle}>
         <div style={headingStyle}>
-          <span>1. Cost relief</span>
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>OT public pricing</span>
+          <span>1. COST RELIEF</span>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 10 }}>PUBLIC PRICING</span>
         </div>
         <div style={rowStyle}>
           <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>OpenTable annual cost {locations > 1 ? `(per location)` : ''}</span>
@@ -966,7 +966,7 @@ function ROICalculator() {
       {/* Section 2: Day 1 demand gen */}
       <div style={sectionStyle}>
         <div style={headingStyle}>
-          <span>2. Demand gen — day one</span>
+          <span>2. DEMAND GEN — DAY ONE</span>
           <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: 10 }}>OBSERVED</span>
         </div>
         <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(255,76,0,0.05)', borderRadius: 6, border: '1px solid rgba(255,76,0,0.15)', fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -975,7 +975,7 @@ function ROICalculator() {
         </div>
         <div style={rowStyle}>
           <div>
-            <span style={{ fontSize: 12 }}>Google Reserve With Google</span>
+            <span style={{ fontSize: 12 }}>Reserve with Google</span>
             <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Based on {fmtDec(rwgMonthly)} avg/month for {cat.label} on Toast{showInternal ? ' (Snowflake observed, Q1 2026)' : ''}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -1002,7 +1002,7 @@ function ROICalculator() {
       {/* Section 3: Aspirational demand gen */}
       <div style={sectionStyle}>
         <div style={headingStyle}>
-          <span>3. Demand gen — invest</span>
+          <span>3. DEMAND GEN — INVEST</span>
           {showInternal && <span style={{ fontSize: 11, color: '#d97706', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(245,158,11,0.1)', padding: '2px 8px', borderRadius: 10 }}>ASPIRATIONAL</span>}
         </div>
         <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
@@ -1046,7 +1046,7 @@ function ROICalculator() {
 
       {/* Section 4: Net position */}
       <div style={{ ...sectionStyle, background: 'rgba(255,76,0,0.05)', border: '1px solid rgba(255,76,0,0.25)' }}>
-        <div style={{ ...headingStyle, color: 'var(--text-primary)' }}>Total annual value</div>
+        <div style={{ ...headingStyle, color: 'var(--text-primary)' }}>TOTAL ANNUAL VALUE</div>
         <div style={rowStyle}>
           <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Cost savings</span>
           <span style={{ fontWeight: 600 }}>{fmt(totalSavings)}</span>
