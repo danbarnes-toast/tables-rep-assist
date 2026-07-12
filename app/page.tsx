@@ -111,6 +111,7 @@ interface Account {
 interface SimilarAccount { name: string; city: string; state: string; bookings_90d: number; covers_90d: number; }
 interface RepData {
   rep_name: string; team: string; region: string; seeded_at: string;
+  slack_photo?: string; title?: string;
   accounts: Account[]; similar_accounts: SimilarAccount[];
 }
 
@@ -417,7 +418,7 @@ function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{selected.name}</p>
+              <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{repData.rep_name.split(' ')[0]}&apos;s brief: {selected.name}</p>
               <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{selected.city}, {selected.state} · {selected.chorus_calls?.length ?? 0} calls · {selected.activation_status}</p>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -552,7 +553,12 @@ function AccountsTab({ data }: { data: RepData }) {
                     }}>
                       {acct.is_activated ? 'Activated' : acct.activation_status}
                     </span>
-                    {days !== null && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Day {days} / 30</span>}
+                    {days !== null && (() => {
+                      const target = new Date(acct.signed_date);
+                      target.setDate(target.getDate() + 30);
+                      const targetStr = target.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      return <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>activate by {targetStr} · day {days}</span>;
+                    })()}
                   </div>
                 </div>
 
@@ -710,7 +716,12 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {repData && (
                 <div className="glow-card" style={{ padding: '16px 20px' }}>
-                  <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, marginBottom: 4 }}>Hey {firstName},</p>
+                  <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, marginBottom: 2 }}>Hey {firstName},</p>
+                  {(repData.title || repData.region) && (
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>
+                      {[repData.title, repData.region].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
                   <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                     {repData.accounts.length === 1 ? `1 account in your pipeline.` : `${repData.accounts.length} accounts in your pipeline.`}{' '}
                     {selected ? `Working on ${selected.name}.` : 'Select an account above for a personalized pitch.'}
@@ -719,7 +730,10 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
               )}
               <p style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', padding: '0 2px' }}>Try asking</p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {SUGGESTIONS[mode].map(s => (
+                {(selected && mode === 'ask' ? [
+                  `What's the best pitch for ${selected.name}?`,
+                  ...SUGGESTIONS[mode].slice(1),
+                ] : SUGGESTIONS[mode]).map(s => (
                   <button key={s} onClick={() => submit(s)} className="chip" style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, fontSize: 12 }}>
                     {s}
                   </button>
@@ -1174,8 +1188,11 @@ export default function Home() {
           {/* Right: rep + theme controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
             {firstName && (
-              <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{firstName[0].toUpperCase()}</span>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)' }}>
+                {repData?.slack_photo
+                  ? <img src={repData.slack_photo} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{firstName[0].toUpperCase()}</span>
+                }
               </div>
             )}
             <ThemePicker activeTheme={activeTheme} isDark={isDark} onTheme={setTheme} onToggleDark={toggleDark} />
