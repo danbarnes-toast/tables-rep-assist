@@ -2,7 +2,6 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import type { RepContext, AccountContext } from '@/lib/system-prompt';
 import { THEMES, getThemeForDate, applyTheme, type Theme } from '@/lib/themes';
@@ -12,7 +11,7 @@ import {
   type OtTierKey, type CategoryKey,
 } from '@/lib/roi-data';
 
-type Mode = 'ask' | 'train' | 'prep' | 'roi' | 'accounts' | 'proof';
+type Mode = 'home' | 'ask' | 'train' | 'prep' | 'roi' | 'accounts' | 'proof' | 'listen';
 
 // ── Toast flame SVG ────────────────────────────────────────────────────────
 function ToastFlame({ size = 16, className = '' }: { size?: number; className?: string }) {
@@ -269,6 +268,39 @@ function useStreak(): number {
   return streak;
 }
 
+// ── Chat history utils ─────────────────────────────────────────────────────
+function chatHistoryKey(repName: string, mode: string) {
+  return `rep_chat_${mode}_${repName}`;
+}
+
+function saveChatHistory(repName: string, mode: string, messages: { role: string; text: string }[]) {
+  try {
+    localStorage.setItem(chatHistoryKey(repName, mode), JSON.stringify({
+      messages: messages.slice(-20),
+      savedAt: new Date().toISOString(),
+    }));
+  } catch {}
+}
+
+function loadChatHistory(repName: string, mode: string): { messages: { role: string; text: string }[]; savedAt: string } | null {
+  try {
+    const raw = localStorage.getItem(chatHistoryKey(repName, mode));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function formatRelativeDate(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
+
 // ── Confetti burst ─────────────────────────────────────────────────────────
 function ConfettiBurst({ visible, onDone }: { visible: boolean; onDone: () => void }) {
   useEffect(() => {
@@ -446,6 +478,491 @@ function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) =
   );
 }
 
+// ── Live Call / Listen tab ─────────────────────────────────────────────────
+interface ListenInsight {
+  id: string;
+  type: 'objection' | 'question' | 'signal' | 'answer';
+  trigger: string;
+  response: string;
+  timestamp: number;
+}
+
+// Quick lookup — heard keyword → canned response card while AI generates
+const QUICK_TRIGGERS: { keywords: string[]; type: ListenInsight['type']; trigger: string; response: string }[] = [
+  { keywords: ['opentable', 'open table'], type: 'objection', trigger: 'OpenTable comparison', response: 'Toast Tables: $0 cover fee vs OT $1.50-$2.50/cover. Guest data stays with the restaurant, not OpenTable. Same-night orders available, OT is reservations-only.' },
+  { keywords: ['resy'], type: 'objection', trigger: 'Resy comparison', response: 'Resy: strong NYC/fine dining. Tables: broader coverage + POS integration + same-night OO. Resy has no ordering. Pricing similar but no cover fee on Tables.' },
+  { keywords: ['how much', 'cost', 'price', 'pricing'], type: 'question', trigger: 'Pricing question', response: '$249/mo base. No per-cover fee. No contract required. OT equivalent would be $249 + $1.50-2.50/cover — at 500 covers/mo that\'s $1,000+/mo vs $249.' },
+  { keywords: ['google', 'reserve with google', 'rwg'], type: 'question', trigger: 'Reserve with Google', response: 'Tables is a Reserve with Google partner. Guests book directly from Google Search/Maps. No extra setup — it\'s included.' },
+  { keywords: ['setup', 'onboarding', 'how long'], type: 'question', trigger: 'Setup timeline', response: 'Live in 1-2 weeks typically. OC walks through floor plan, schedule, service areas. Config Checker runs weekly to catch issues before they become problems.' },
+  { keywords: ['cancel', 'contract', 'lock in', 'locked in'], type: 'objection', trigger: 'Contract / cancel', response: 'No long-term contract required. Month-to-month available. Restaurants stay because it works, not because they\'re locked in.' },
+  { keywords: ['deposit', 'pre-pay', 'prepay', 'credit card'], type: 'question', trigger: 'Deposits / prepayment', response: 'Tables supports deposits and prepayment natively. Restaurant sets the policy. Guest pays at booking. Integrated with Toast Payments — no third-party processor needed.' },
+  { keywords: ['waitlist'], type: 'question', trigger: 'Waitlist', response: 'Tables has a native waitlist. Guests join from the host app or the website widget. SMS notifications when table is ready. No separate subscription.' },
+  { keywords: ['widget', 'website', 'embed'], type: 'question', trigger: 'Website widget', response: 'Embeddable booking widget for their site — copy/paste one line of code. Works on any website platform. Direct bookings = no third-party fee.' },
+  { keywords: ['data', 'guest data', 'crm', 'guestbook'], type: 'signal', trigger: 'Guest data / CRM interest', response: 'Guestbook: every reservation builds a guest profile. Visit history, preferences, dietary notes. Restaurant owns the data — it never goes to a competitor marketplace.' },
+];
+
+function detectTriggers(transcript: string): typeof QUICK_TRIGGERS[0] | null {
+  const lower = transcript.toLowerCase();
+  for (const t of QUICK_TRIGGERS) {
+    if (t.keywords.some(k => lower.includes(k))) return t;
+  }
+  return null;
+}
+
+function ListenTab({ repData }: { repData: RepData | null }) {
+  const [listening, setListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [interimText, setInterimText] = useState('');
+  const [insights, setInsights] = useState<ListenInsight[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [supported, setSupported] = useState(true);
+  const [permError, setPermError] = useState<string | null>(null);
+  const [manualInput, setManualInput] = useState('');
+  const recognitionRef = useRef<any>(null);
+  const insightListRef = useRef<HTMLDivElement>(null);
+  const seenTriggerKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SR) { setSupported(false); }
+  }, []);
+
+  // Auto-scroll insights
+  useEffect(() => {
+    if (insightListRef.current) {
+      insightListRef.current.scrollTop = insightListRef.current.scrollHeight;
+    }
+  }, [insights]);
+
+  const addInsight = (ins: Omit<ListenInsight, 'id' | 'timestamp'>) => {
+    setInsights(prev => [...prev, { ...ins, id: Date.now().toString(), timestamp: Date.now() }]);
+  };
+
+  const askAI = async (text: string) => {
+    if (!text.trim() || aiLoading) return;
+    setAiLoading(true);
+    addInsight({ type: 'signal', trigger: 'Heard', response: text.trim().slice(0, 120) + (text.length > 120 ? '...' : '') });
+    try {
+      const repContext = repData ? { rep_name: repData.rep_name, team: repData.team, region: repData.region } : undefined;
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: `LIVE CALL MODE. The prospect just said or asked: "${text.trim()}"\n\nGive me a concise 2-3 sentence response I can use RIGHT NOW. Lead with the key fact or reframe. No preamble.` }],
+          repContext,
+        }),
+      });
+      if (!res.ok) throw new Error('API error');
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('No reader');
+      let answer = '';
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+            try {
+              const parsed = JSON.parse(line.slice(6));
+              if (parsed.type === 'text-delta') answer += parsed.delta ?? '';
+              else if (typeof parsed === 'string') answer += parsed;
+            } catch {}
+          }
+        }
+      }
+      if (answer.trim()) {
+        addInsight({ type: 'answer', trigger: 'Suggested response', response: answer.trim() });
+      }
+    } catch {
+      addInsight({ type: 'answer', trigger: 'Error', response: 'Could not reach AI — check connection.' });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const processPhrase = (phrase: string) => {
+    const quick = detectTriggers(phrase);
+    if (quick && !seenTriggerKeysRef.current.has(quick.trigger)) {
+      seenTriggerKeysRef.current.add(quick.trigger);
+      addInsight({ type: quick.type, trigger: quick.trigger, response: quick.response });
+    }
+    setTranscript(prev => (prev ? prev + ' ' + phrase : phrase).slice(-600));
+  };
+
+  const startListening = () => {
+    const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = 'en-US';
+    r.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          processPhrase(e.results[i][0].transcript.trim());
+        } else {
+          interim += e.results[i][0].transcript;
+        }
+      }
+      setInterimText(interim);
+    };
+    r.onerror = (e: any) => {
+      if (e.error === 'not-allowed') setPermError('Microphone access denied. Allow microphone in browser settings.');
+      else if (e.error !== 'no-speech') setPermError(`Recognition error: ${e.error}`);
+    };
+    r.onend = () => { setListening(false); setInterimText(''); };
+    recognitionRef.current = r;
+    r.start();
+    setListening(true);
+    setPermError(null);
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    setListening(false);
+    setInterimText('');
+  };
+
+  const clearAll = () => {
+    setInsights([]);
+    setTranscript('');
+    seenTriggerKeysRef.current.clear();
+  };
+
+  const typeColor: Record<ListenInsight['type'], string> = {
+    objection: '#f59e0b',
+    question: '#6366f1',
+    signal: '#64748b',
+    answer: 'var(--accent)',
+  };
+  const typeLabel: Record<ListenInsight['type'], string> = {
+    objection: 'OBJECTION',
+    question: 'QUESTION',
+    signal: 'HEARD',
+    answer: 'USE THIS',
+  };
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Top bar */}
+      <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-strip)', flexShrink: 0 }}>
+        <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Live Call Assist</p>
+            <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+              Type a short phrase from the call. Instant cards for 10+ known topics, AI for everything else.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {insights.length > 0 && (
+              <button onClick={clearAll} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 12px', fontSize: 11, color: 'var(--text-tertiary)', cursor: 'pointer' }}>
+                Clear
+              </button>
+            )}
+            {supported && (
+              <button
+                onClick={listening ? stopListening : startListening}
+                title="Requires BlackHole or similar virtual audio device to hear both sides"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'none',
+                  border: `1px solid ${listening ? 'rgba(239,68,68,0.3)' : 'var(--border)'}`,
+                  borderRadius: 8, padding: '6px 12px', fontSize: 11,
+                  color: listening ? '#ef4444' : 'var(--text-tertiary)', cursor: 'pointer',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: listening ? '#ef4444' : 'var(--text-tertiary)', flexShrink: 0, animation: listening ? 'pulse-dot 1.2s ease-in-out infinite' : 'none' }} />
+                {listening ? 'Stop mic' : 'Use mic'}
+              </button>
+            )}
+          </div>
+        </div>
+        {listening && (
+          <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 5, maxWidth: 720, margin: '5px auto 0', fontFamily: 'monospace' }}>
+            Mic active — hears your voice only. To capture both sides, route Zoom audio through BlackHole (free, Mac).
+          </p>
+        )}
+        {permError && (
+          <p style={{ fontSize: 11, color: '#ef4444', marginTop: 6, maxWidth: 720, margin: '6px auto 0' }}>{permError}</p>
+        )}
+      </div>
+
+      {/* Insights feed */}
+      <div ref={insightListRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+        <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {insights.length === 0 && (
+            <div style={{ paddingTop: 32, textAlign: 'center' }}>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 16, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Try typing one of these</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginBottom: 20 }}>
+                {['we use OpenTable', 'how much does it cost', 'can we do deposits', 'what about waitlist', 'how long to set up', 'no long-term contract?'].map(ex => (
+                  <button key={ex} onClick={() => { setManualInput(ex); }} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, padding: '5px 12px', fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                    {ex}
+                  </button>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Cards appear instantly for known topics. AI fills in everything else.</p>
+            </div>
+          )}
+          {insights.map(ins => (
+            <div key={ins.id} style={{
+              background: 'var(--bg-card)', border: `1px solid var(--border)`,
+              borderLeft: `3px solid ${typeColor[ins.type]}`,
+              borderRadius: '0 12px 12px 0', padding: '10px 14px',
+              animation: 'slide-in-insight 0.2s ease-out',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: typeColor[ins.type], letterSpacing: '0.1em' }}>
+                  {typeLabel[ins.type]}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+                  {new Date(ins.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              </div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>{ins.trigger}</p>
+              <p style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.5 }}>{ins.response}</p>
+              {ins.type === 'answer' && (
+                <button
+                  onClick={() => speakText(ins.response, 'en-US')}
+                  style={{ marginTop: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-tertiary)', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  ▶ Read aloud
+                </button>
+              )}
+            </div>
+          ))}
+          {aiLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px' }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[0,1,2].map(i => <span key={i} className="bounce-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', display: 'inline-block' }} />)}
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Generating response...</span>
+            </div>
+          )}
+          {listening && interimText && (
+            <div style={{ padding: '8px 14px', background: 'rgba(255,76,0,0.04)', border: '1px dashed rgba(255,76,0,0.2)', borderRadius: 8 }}>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>{interimText}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Manual input — primary path */}
+      <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', background: 'var(--bg-header)', flexShrink: 0 }}>
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          <form onSubmit={e => { e.preventDefault(); if (manualInput.trim()) { askAI(manualInput); setManualInput(''); } }} style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={manualInput} onChange={e => setManualInput(e.target.value)}
+              placeholder='What did they say? e.g. "we already use OpenTable" or "how much does it cost"'
+              className="themed-input"
+              style={{ fontSize: 14 }}
+              disabled={aiLoading}
+              autoFocus
+            />
+            <button type="submit" disabled={aiLoading || !manualInput.trim()} className="btn-primary" style={{ padding: '10px 20px', flexShrink: 0, fontSize: 13 }}>
+              {aiLoading ? '...' : 'Get response'}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes slide-in-insight {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse-dot {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.7); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Home tab ───────────────────────────────────────────────────────────────
+interface ActionItem { id: string; text: string; done: boolean; }
+
+function HomeTab({ repData, streak, onNav }: {
+  repData: RepData | null;
+  streak: number;
+  onNav: (mode: Mode) => void;
+}) {
+  const daily = getDailyContent(new Date());
+  const firstName = repData?.rep_name.split(' ')[0] ?? '';
+  const isOnboarding = repData ? daysSince(repData.seeded_at) < 30 : false;
+  const [actions, setActions] = useState<ActionItem[]>([]);
+  const [newAction, setNewAction] = useState('');
+  const actionsKey = `rep_actions_${repData?.rep_name ?? 'default'}`;
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(actionsKey);
+      if (stored) { setActions(JSON.parse(stored)); return; }
+    } catch {}
+    if (isOnboarding) {
+      setActions([
+        { id: '1', text: 'Complete your first mock pitch in Train mode', done: false },
+        { id: '2', text: 'Generate a prep brief for your first account', done: false },
+        { id: '3', text: 'Review the ROI calculator with a real prospect in mind', done: false },
+        { id: '4', text: 'Read the competitive objection guide for OpenTable', done: false },
+      ]);
+    } else {
+      setActions([
+        { id: '1', text: 'Review pipeline before end of week', done: false },
+        { id: '2', text: 'Generate prep briefs for this week\'s calls', done: false },
+        { id: '3', text: 'Log outcomes from last week\'s activations', done: false },
+      ]);
+    }
+  }, [actionsKey, isOnboarding]);
+
+  const saveActions = (updated: ActionItem[]) => {
+    setActions(updated);
+    try { localStorage.setItem(actionsKey, JSON.stringify(updated)); } catch {}
+  };
+
+  const toggleAction = (id: string) => saveActions(actions.map(a => a.id === id ? { ...a, done: !a.done } : a));
+  const deleteAction = (id: string) => saveActions(actions.filter(a => a.id !== id));
+  const addAction = () => {
+    if (!newAction.trim()) return;
+    const item: ActionItem = { id: Date.now().toString(), text: newAction.trim(), done: false };
+    saveActions([...actions, item]);
+    setNewAction('');
+  };
+
+  const activated = repData?.accounts.filter(a => a.is_activated).length ?? 0;
+  const total = repData?.accounts.length ?? 0;
+  const notActivated = total - activated;
+  const recentBrief = repData?.accounts.find(a => a.chorus_calls && a.chorus_calls.length > 0);
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.1em',
+    fontFamily: 'monospace', color: 'var(--accent)', fontWeight: 600, marginBottom: 8,
+  };
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--bg-card)', border: '1px solid var(--border)',
+    borderRadius: 12, padding: '12px 14px',
+  };
+
+  return (
+    <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 680, margin: '0 auto' }}>
+
+      {/* Header */}
+      <div style={{ paddingBottom: 4 }}>
+        <p style={{ fontSize: 10, color: 'var(--accent)', fontFamily: 'monospace', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>{daily.dayName}</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {repData?.slack_photo && (
+            <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', border: '2px solid var(--accent-glow)', flexShrink: 0 }}>
+              <img src={repData.slack_photo} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            </div>
+          )}
+          <div>
+            <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1.2 }}>
+              {daily.greeting}, {firstName}
+            </p>
+            {(repData?.title || repData?.region) && (
+              <p style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                {[repData.title, repData.region].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
+          {streak >= 2 && (
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,76,0,0.08)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 8, padding: '4px 10px' }}>
+              <span style={{ fontSize: 14 }}>🔥</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace' }}>{streak} day streak</span>
+            </div>
+          )}
+        </div>
+        {isOnboarding && (
+          <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8 }}>
+            <p style={{ fontSize: 11, color: '#818cf8' }}>Onboarding mode — your first {30 - daysSince(repData!.seeded_at)} days. Work through the checklist below to get up to speed.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Pipeline pulse */}
+      {repData && (
+        <div>
+          <p style={labelStyle}>Pipeline</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left' }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{total}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>accounts</p>
+            </button>
+            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left' }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: '#10b981', letterSpacing: '-0.02em' }}>{activated}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>activated</p>
+            </button>
+            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderColor: notActivated > 0 ? 'rgba(245,158,11,0.3)' : 'var(--border)' }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: notActivated > 0 ? '#f59e0b' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{notActivated}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>need setup</p>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Quick actions */}
+      <div>
+        <p style={labelStyle}>Jump to</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {[
+            { label: 'Prep brief', sub: recentBrief ? `Last: ${recentBrief.name}` : 'Generate before your call', mode: 'prep' as Mode, accent: true },
+            { label: 'Ask anything', sub: 'Objections, pricing, features', mode: 'ask' as Mode, accent: false },
+            { label: 'ROI calculator', sub: 'Build the case live', mode: 'roi' as Mode, accent: false },
+            { label: 'Train mode', sub: 'Practice a full pitch', mode: 'train' as Mode, accent: false },
+          ].map(item => (
+            <button key={item.mode} onClick={() => onNav(item.mode)} style={{
+              ...cardStyle, cursor: 'pointer', textAlign: 'left',
+              borderColor: item.accent ? 'rgba(255,76,0,0.3)' : 'var(--border)',
+              borderLeft: item.accent ? '3px solid var(--accent)' : '1px solid var(--border)',
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{item.label}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{item.sub}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Action items */}
+      <div>
+        <p style={labelStyle}>{isOnboarding ? 'Onboarding checklist' : 'For you'}</p>
+        <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {actions.sort((a, b) => Number(a.done) - Number(b.done)).map((item, idx) => (
+            <div key={item.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
+              borderBottom: idx < actions.length - 1 ? '1px solid var(--border)' : 'none',
+            }}>
+              <input type="checkbox" checked={item.done} onChange={() => toggleAction(item.id)}
+                style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, cursor: 'pointer' }} />
+              <p style={{ flex: 1, fontSize: 12, color: item.done ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.done ? 'line-through' : 'none', lineHeight: 1.4 }}>{item.text}</p>
+              <button onClick={() => deleteAction(item.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>x</button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, marginTop: actions.length > 0 ? 8 : 0 }}>
+            <input
+              value={newAction} onChange={e => setNewAction(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addAction()}
+              placeholder="Add item..."
+              style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 12, padding: '4px 0', outline: 'none' }}
+            />
+            {newAction && (
+              <button onClick={addAction} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0 }}>Add</button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Daily quote */}
+      <div style={{ padding: '10px 14px', background: 'var(--bg-strip)', borderRadius: 10, borderLeft: '2px solid var(--accent)' }}>
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 3 }}>"{daily.quote.quote}"</p>
+        <p style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{daily.spark}</p>
+      </div>
+
+    </div>
+  );
+}
+
 // ── Prep brief ─────────────────────────────────────────────────────────────
 interface OpenCommitment { owner: string; item: string; status: 'pending' | 'likely_done' | 'unknown'; }
 interface PredictedObjection { objection: string; counter: string; }
@@ -455,8 +972,8 @@ interface PrepBrief {
   one_close: string; confidence: 'high' | 'medium' | 'low'; confidence_reason: string;
 }
 
-function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx }: {
-  repData: RepData | null; selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void;
+function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx, onBriefGenerated }: {
+  repData: RepData | null; selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void; onBriefGenerated?: () => void;
 }) {
   const [brief, setBrief] = useState<PrepBrief | null>(null);
   const [loading, setLoading] = useState(false);
@@ -484,7 +1001,7 @@ function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx }: {
       });
       const data = await res.json() as { brief?: PrepBrief; error?: string };
       if (data.error) throw new Error(data.error);
-      if (data.brief) setBrief(data.brief);
+      if (data.brief) { setBrief(data.brief); onBriefGenerated?.(); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoading(false); }
   };
@@ -795,21 +1312,108 @@ const SUGGESTIONS: Record<'ask' | 'train', string[]> = {
   ],
 };
 
+// ── Language support ────────────────────────────────────────────────────────
+const LANGUAGES: { code: string; label: string; flag: string }[] = [
+  { code: 'en',    label: 'English',    flag: '🇺🇸' },
+  { code: 'es',    label: 'Español',    flag: '🇪🇸' },
+  { code: 'pt-BR', label: 'Português',  flag: '🇧🇷' },
+  { code: 'fr',    label: 'Français',   flag: '🇫🇷' },
+  { code: 'de',    label: 'Deutsch',    flag: '🇩🇪' },
+  { code: 'it',    label: 'Italiano',   flag: '🇮🇹' },
+  { code: 'pl',    label: 'Polski',     flag: '🇵🇱' },
+  { code: 'nl',    label: 'Nederlands', flag: '🇳🇱' },
+  { code: 'ru',    label: 'Русский',    flag: '🇷🇺' },
+  { code: 'ar',    label: 'العربية',    flag: '🇸🇦' },
+  { code: 'hi',    label: 'हिंदी',     flag: '🇮🇳' },
+  { code: 'zh',    label: '中文',       flag: '🇨🇳' },
+  { code: 'ja',    label: '日本語',     flag: '🇯🇵' },
+  { code: 'ko',    label: '한국어',     flag: '🇰🇷' },
+  { code: 'vi',    label: 'Tiếng Việt', flag: '🇻🇳' },
+  { code: 'tl',    label: 'Filipino',   flag: '🇵🇭' },
+];
+
+function speakText(text: string, lang: string) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const clean = text.replace(/<[^>]+>/g, '').replace(/#+\s/g, '').replace(/\*+/g, '').trim();
+  const utt = new SpeechSynthesisUtterance(clean);
+  utt.lang = lang;
+  utt.rate = 1.05;
+  const assign = () => {
+    const voices = window.speechSynthesis.getVoices();
+    const match = voices.find(v => v.lang === lang) ?? voices.find(v => v.lang.startsWith(lang.split('-')[0]));
+    if (match) utt.voice = match;
+    window.speechSynthesis.speak(utt);
+  };
+  // getVoices() is async in Chrome — wait for population if empty
+  if (window.speechSynthesis.getVoices().length > 0) { assign(); }
+  else { window.speechSynthesis.addEventListener('voiceschanged', assign, { once: true }); }
+}
+
 function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: {
   mode: 'ask' | 'train'; repData: RepData | null;
   selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void;
 }) {
   const { messages, sendMessage, status: chatStatus } = useChat({ id: mode });
   const [input, setInput] = useState('');
+  const [recentQuestions, setRecentQuestions] = useState<string[]>([]);
+  const [lastActive, setLastActive] = useState<string | null>(null);
+  const [language, setLanguage] = useState<string>('en');
+  const [showLangPicker, setShowLangPicker] = useState(false);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const speakIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Clean up speech + polling on unmount
+  useEffect(() => () => {
+    window.speechSynthesis?.cancel();
+    if (speakIntervalRef.current) clearInterval(speakIntervalRef.current);
+  }, []);
   const selected = selectedAccountIdx !== null ? (repData?.accounts[selectedAccountIdx] ?? null) : null;
 
-  const contextRef = useRef<{ repContext?: RepContext; accountContext?: AccountContext }>({});
+  const contextRef = useRef<{ repContext?: RepContext; accountContext?: AccountContext; language?: string }>({});
   contextRef.current = {
     repContext: repData ? { rep_name: repData.rep_name, team: repData.team, region: repData.region } : undefined,
     accountContext: selected ? buildAccountPayload(selected) : undefined,
+    language,
   };
+
+  const currentLang = LANGUAGES.find(l => l.code === language) ?? LANGUAGES[0];
+
+  const setLang = (code: string) => {
+    setLanguage(code);
+    try { localStorage.setItem('rep_language', code); } catch {}
+    setShowLangPicker(false);
+  };
+
+  // Load history on mount
+  useEffect(() => {
+    const repKey = repData?.rep_name ?? null;
+    if (!repKey) return;
+    const saved = loadChatHistory(repKey, mode);
+    if (saved) {
+      setLastActive(saved.savedAt);
+      const questions = saved.messages
+        .filter(m => m.role === 'user')
+        .slice(-3)
+        .map(m => m.text)
+        .reverse();
+      setRecentQuestions(questions);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save history whenever messages change
+  useEffect(() => {
+    const repKey = repData?.rep_name ?? null;
+    if (!repKey || messages.length === 0) return;
+    const flat = messages.map(msg => ({
+      role: msg.role,
+      text: msg.parts.filter((p: any) => p.type === 'text').map((p: any) => p.text).join(''),
+    }));
+    saveChatHistory(repKey, mode, flat);
+  }, [messages, repData, mode]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isLoading]);
 
@@ -873,7 +1477,26 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
                         {repData.accounts.length === 1 ? `1 account in your pipeline.` : `${repData.accounts.length} accounts in your pipeline.`}{' '}
                         {selected ? `Working on ${selected.name}.` : 'Select an account above for a personalized pitch.'}
                       </p>
+                      {lastActive && (
+                        <p style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'monospace', marginTop: 4 }}>
+                          Last session: {formatRelativeDate(lastActive)}
+                        </p>
+                      )}
                     </div>
+                  </div>
+                </div>
+              )}
+              {recentQuestions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.1em', fontFamily: 'monospace', padding: '0 2px' }}>
+                    Pick up where you left off
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {recentQuestions.map(q => (
+                      <button key={q} onClick={() => submit(q)} className="chip" style={{ textAlign: 'left', padding: '10px 14px', borderRadius: 10, fontSize: 12, borderLeft: '2px solid var(--accent)' }}>
+                        {q.length > 80 ? q.slice(0, 77) + '...' : q}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
@@ -928,9 +1551,32 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
                   </div>
                 </div>
 
-                {isLastAI && suggestions.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8, marginLeft: 36 }}>
-                    {suggestions.map((s, i) => (
+                {msg.role === 'assistant' && (
+                  <div style={{ marginTop: 4, marginLeft: 36, display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button
+                      title={speakingId === msg.id ? 'Stop' : 'Read aloud'}
+                      onClick={() => {
+                        if (speakingId === msg.id) {
+                          window.speechSynthesis?.cancel();
+                          setSpeakingId(null);
+                        } else {
+                          setSpeakingId(msg.id);
+                          speakText(display, language);
+                          if (speakIntervalRef.current) clearInterval(speakIntervalRef.current);
+                          speakIntervalRef.current = setInterval(() => {
+                            if (!window.speechSynthesis?.speaking) {
+                              setSpeakingId(null);
+                              clearInterval(speakIntervalRef.current!);
+                              speakIntervalRef.current = null;
+                            }
+                          }, 300);
+                        }
+                      }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: speakingId === msg.id ? 'var(--accent)' : 'var(--text-tertiary)', fontSize: 13, padding: '2px 4px', borderRadius: 4, lineHeight: 1 }}
+                    >
+                      {speakingId === msg.id ? '■' : '▶'}
+                    </button>
+                    {isLastAI && suggestions.length > 0 && suggestions.map((s, i) => (
                       <button key={i} onClick={() => submit(s)} className="chip">{s}</button>
                     ))}
                   </div>
@@ -957,7 +1603,37 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
 
       {/* Input bar */}
       <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', flexShrink: 0, background: 'var(--bg-header)' }}>
-        <form onSubmit={e => { e.preventDefault(); submit(input); }} style={{ maxWidth: 720, margin: '0 auto', display: 'flex', gap: 8 }}>
+        <form onSubmit={e => { e.preventDefault(); submit(input); }} style={{ maxWidth: 720, margin: '0 auto', display: 'flex', gap: 8, position: 'relative' }}>
+          {/* Language picker */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button type="button" onClick={() => setShowLangPicker(p => !p)}
+              title="Switch language"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0 10px', height: 42, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', fontSize: 13 }}>
+              <span>{currentLang.flag}</span>
+              <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text-tertiary)' }}>{currentLang.code.toUpperCase().slice(0, 2)}</span>
+            </button>
+            {showLangPicker && (
+              <div style={{
+                position: 'absolute', bottom: '110%', left: 0, zIndex: 50,
+                background: 'var(--bg-card)', border: '1px solid var(--border)',
+                borderRadius: 12, padding: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)', minWidth: 220,
+              }}>
+                {LANGUAGES.map(l => (
+                  <button key={l.code} type="button" onClick={() => setLang(l.code)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px',
+                      background: l.code === language ? 'var(--accent-light)' : 'none',
+                      border: l.code === language ? '1px solid var(--accent-glow)' : '1px solid transparent',
+                      borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                    }}>
+                    <span style={{ fontSize: 15 }}>{l.flag}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-primary)', fontWeight: l.code === language ? 600 : 400 }}>{l.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <input
             value={input} onChange={e => setInput(e.target.value)}
             placeholder={mode === 'ask' ? 'Ask about features, objections, or customer examples...' : 'Ask me to teach you anything about Toast Tables...'}
@@ -968,6 +1644,11 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
             Send
           </button>
         </form>
+        {language !== 'en' && (
+          <p style={{ textAlign: 'center', fontSize: 10, color: 'var(--accent)', fontFamily: 'monospace', marginTop: 4, maxWidth: 720, margin: '4px auto 0' }}>
+            {currentLang.flag} Responding in {currentLang.label}
+          </p>
+        )}
       </div>
     </>
   );
@@ -1240,22 +1921,26 @@ function ROICalculator() {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 export default function Home() {
-  const { data: session, status } = useSession();
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>('ask');
+  const [mode, setMode] = useState<Mode>('home');
   const [repData, setRepData] = useState<RepData | null>(null);
   const [selectedAccountIdx, setSelectedAccountIdx] = useState<number | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [activeTheme, setActiveTheme] = useState<Theme>(() => getThemeForDate(new Date()));
+  const [confetti, setConfetti] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const streak = useStreak();
+  const [repEmail, setRepEmail] = useState<string | null>(null);
 
-  const repEmail = session?.user?.email ?? null;
-
-  // Redirect to login if not authenticated
+  // Load session email from API
   useEffect(() => {
-    if (status === 'unauthenticated') router.push('/login');
-  }, [status, router]);
+    fetch('/api/me').then(r => {
+      if (!r.ok) { router.push('/login'); return null; }
+      return r.json();
+    }).then(d => { if (d?.email) setRepEmail(d.email); }).catch(() => router.push('/login'));
+  }, [router]);
 
-  // Load persisted preferences
+  // Load persisted preferences + onboarding check
   useEffect(() => {
     const dark = localStorage.getItem('rep_dark') === '1';
     const themeId = localStorage.getItem('rep_theme');
@@ -1264,6 +1949,7 @@ export default function Home() {
       const t = THEMES.find(t => t.id === themeId);
       if (t) setActiveTheme(t);
     }
+    if (!localStorage.getItem('rep_onboarding_done')) setShowOnboarding(true);
   }, []);
 
   // Apply theme + mode whenever either changes
@@ -1290,6 +1976,12 @@ export default function Home() {
 
   const firstName = repData?.rep_name.split(' ')[0];
 
+
+  const dismissOnboarding = useCallback(() => {
+    localStorage.setItem('rep_onboarding_done', '1');
+    setShowOnboarding(false);
+  }, []);
+
   // Show spinner while session loads
   if (status === 'loading' || status === 'unauthenticated') return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a' }}>
@@ -1298,10 +1990,12 @@ export default function Home() {
     </div>
   );
 
-  const TAB_LABELS: Record<Mode, string> = { ask: 'Ask', train: 'Train', roi: 'ROI', prep: 'Prep', accounts: 'Pipeline', proof: 'Proof' };
+  const TAB_LABELS: Record<Mode, string> = { home: 'Home', ask: 'Ask', listen: 'Live', train: 'Train', roi: 'ROI', prep: 'Prep', accounts: 'Pipeline', proof: 'Proof' };
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)' }}>
+      <ConfettiBurst visible={confetti} onDone={() => setConfetti(false)} />
+      {showOnboarding && <OnboardingBanner onDismiss={dismissOnboarding} onGo={m => { setMode(m); dismissOnboarding(); }} />}
       {/* Header */}
       <header style={{
         borderBottom: '1px solid var(--border)', padding: '10px 16px',
@@ -1330,25 +2024,29 @@ export default function Home() {
 
           {/* Center: tabs */}
           <div className="tab-bar">
-            {(['ask', 'train', 'roi', 'prep', 'accounts', 'proof'] as Mode[]).map(m => (
+            {(['home', 'ask', 'listen', 'train', 'roi', 'prep', 'accounts', 'proof'] as Mode[]).map(m => (
               <button key={m} onClick={() => setMode(m)} className={`tab-btn${mode === m ? ' active' : ''}`}>
                 {TAB_LABELS[m]}
               </button>
             ))}
           </div>
 
-          {/* Right: rep + theme controls */}
+          {/* Right: streak + rep + theme controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            {(firstName || session?.user?.image) && (
+            {streak >= 2 && (
+              <div title={`${streak}-day streak`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,76,0,0.08)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 8, padding: '3px 8px' }}>
+                <span style={{ fontSize: 13 }}>🔥</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace' }}>{streak}</span>
+              </div>
+            )}
+            {(firstName || repEmail) && (
               <button
                 title={`Signed in as ${repEmail ?? ''} — click to sign out`}
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={async () => { await fetch('/api/logout', { method: 'POST' }); router.push('/login'); }}
                 style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)', cursor: 'pointer', padding: 0 }}
               >
                 {repData?.slack_photo
-                  ? <img src={repData.slack_photo} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : session?.user?.image
-                  ? <img src={session.user.image} alt={firstName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ? <img src={repData.slack_photo} alt={firstName ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{(firstName ?? repEmail ?? '?')[0].toUpperCase()}</span>
                 }
               </button>
@@ -1359,7 +2057,13 @@ export default function Home() {
       </header>
 
       {/* Content */}
-      {mode === 'accounts' ? (
+      {mode === 'home' ? (
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />
+        </div>
+      ) : mode === 'listen' ? (
+        <ListenTab repData={repData} />
+      ) : mode === 'accounts' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
             {repData ? <AccountsTab data={repData} /> : (
@@ -1373,7 +2077,7 @@ export default function Home() {
       ) : mode === 'prep' ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            <PrepTab repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} />
+            <PrepTab repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
           </div>
         </div>
       ) : mode === 'roi' ? (

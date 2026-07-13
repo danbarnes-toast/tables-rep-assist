@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 import { Suspense, useState } from 'react';
-import { loginAction } from './actions';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const QUOTES = [
@@ -40,18 +39,22 @@ function LoginContent() {
     setSubmitting(true);
     setError('');
     try {
-      const result = await loginAction(email, passphrase);
-      if (result?.error) {
-        setError(result.error);
-        setSubmitting(false);
-      } else {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, passphrase }),
+      });
+      if (res.ok) {
         router.push('/');
         router.refresh();
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Wrong email or passphrase. @toasttab.com accounts only.');
+        setSubmitting(false);
       }
     } catch {
-      // loginAction redirects on success by throwing a redirect — catch it and navigate
-      router.push('/');
-      router.refresh();
+      setError('Something went wrong. Try again.');
+      setSubmitting(false);
     }
   }
 
