@@ -1,18 +1,26 @@
 import NextAuth from 'next-auth';
-import Google from 'next-auth/providers/google';
+import Credentials from 'next-auth/providers/credentials';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+    Credentials({
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        passphrase: { label: 'Passphrase', type: 'password' },
+      },
+      async authorize(credentials) {
+        const email = (credentials?.email as string ?? '').toLowerCase().trim();
+        const passphrase = credentials?.passphrase as string ?? '';
+        const correct = process.env.AUTH_PASSPHRASE ?? '';
+
+        if (!email.endsWith('@toasttab.com')) return null;
+        if (!correct || passphrase !== correct) return null;
+
+        return { id: email, email, name: email.split('@')[0].replace('.', ' ') };
+      },
     }),
   ],
   callbacks: {
-    signIn({ profile }) {
-      // Only allow @toasttab.com accounts
-      return profile?.email?.endsWith('@toasttab.com') ?? false;
-    },
     session({ session }) {
       return session;
     },
@@ -21,4 +29,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     signIn: '/login',
     error: '/login',
   },
+  session: { strategy: 'jwt' },
 });
