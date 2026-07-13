@@ -1,8 +1,8 @@
 'use client';
 
-import { signIn } from 'next-auth/react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Suspense, useState } from 'react';
+import { loginAction } from './actions';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const QUOTES = [
@@ -28,29 +28,30 @@ function getDailyLoginContent(d: Date) {
 }
 
 function LoginContent() {
-  const params = useSearchParams();
   const router = useRouter();
-  const error = params.get('error');
   const [daily] = useState(() => getDailyLoginContent(new Date()));
   const [email, setEmail] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [localError, setLocalError] = useState('');
+  const [error, setError] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
-    setLocalError('');
-    const res = await signIn('credentials', {
-      email,
-      passphrase,
-      redirect: false,
-    });
-    if (res?.ok) {
+    setError('');
+    try {
+      const result = await loginAction(email, passphrase);
+      if (result?.error) {
+        setError(result.error);
+        setSubmitting(false);
+      } else {
+        router.push('/');
+        router.refresh();
+      }
+    } catch {
+      // loginAction redirects on success by throwing a redirect — catch it and navigate
       router.push('/');
-    } else {
-      setLocalError('Wrong email or passphrase. @toasttab.com accounts only.');
-      setSubmitting(false);
+      router.refresh();
     }
   }
 
@@ -98,9 +99,9 @@ function LoginContent() {
           <p style={{ fontSize: 13, color: '#888' }}>Sign in to get your prep brief.</p>
         </div>
 
-        {(error === 'CredentialsSignin' || localError) && (
+        {error && (
           <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#dc2626', textAlign: 'center', width: '100%', boxSizing: 'border-box' }}>
-            {localError || 'Wrong email or passphrase. @toasttab.com accounts only.'}
+            {error}
           </div>
         )}
 
@@ -111,6 +112,7 @@ function LoginContent() {
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
+            autoComplete="email"
             style={inputStyle}
           />
           <input
@@ -119,6 +121,7 @@ function LoginContent() {
             value={passphrase}
             onChange={e => setPassphrase(e.target.value)}
             required
+            autoComplete="current-password"
             style={inputStyle}
           />
           <button
