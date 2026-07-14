@@ -303,9 +303,11 @@ function formatRelativeDate(iso: string): string {
 
 // ── Confetti burst ─────────────────────────────────────────────────────────
 function ConfettiBurst({ visible, onDone }: { visible: boolean; onDone: () => void }) {
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   useEffect(() => {
-    if (visible) { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }
-  }, [visible, onDone]);
+    if (visible) { const t = setTimeout(() => onDoneRef.current(), 2200); return () => clearTimeout(t); }
+  }, [visible]);
   if (!visible) return null;
   const pieces = Array.from({ length: 32 }, (_, i) => {
     const hue = (i * 37) % 360;
@@ -525,6 +527,7 @@ function ListenTab({ repData }: { repData: RepData | null }) {
   useEffect(() => {
     const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
     if (!SR) { setSupported(false); }
+    return () => { recognitionRef.current?.stop(); };
   }, []);
 
   // Auto-scroll insights
@@ -784,6 +787,33 @@ function ListenTab({ repData }: { repData: RepData | null }) {
 // ── Home tab ───────────────────────────────────────────────────────────────
 interface ActionItem { id: string; text: string; done: boolean; }
 
+const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode?: Mode }[] }[] = [
+  {
+    label: 'Week 1 — Learn the product',
+    items: [
+      { id: 'ob1', text: 'Complete your first mock pitch in Train mode', mode: 'train' },
+      { id: 'ob2', text: 'Ask the AI: "What are the top 3 OpenTable objections?"', mode: 'ask' },
+      { id: 'ob3', text: 'Run the ROI calculator with a real prospect in mind', mode: 'roi' },
+    ],
+  },
+  {
+    label: 'Week 2 — Work your pipeline',
+    items: [
+      { id: 'ob4', text: 'Generate a prep brief before your first real call', mode: 'prep' },
+      { id: 'ob5', text: 'Review customer proof by category', mode: 'proof' },
+      { id: 'ob6', text: 'Ask the AI: "How do I handle a prospect that says they\'re happy with Resy?"', mode: 'ask' },
+    ],
+  },
+  {
+    label: 'Weeks 3-4 — Close your first deal',
+    items: [
+      { id: 'ob7', text: 'Run a mock call with a live objection in Train mode', mode: 'train' },
+      { id: 'ob8', text: 'Use Live mode on a real Zoom call', mode: 'listen' },
+      { id: 'ob9', text: 'Build your first ROI deck for an open opportunity', mode: 'roi' },
+    ],
+  },
+];
+
 function HomeTab({ repData, streak, onNav }: {
   repData: RepData | null;
   streak: number;
@@ -791,16 +821,43 @@ function HomeTab({ repData, streak, onNav }: {
 }) {
   const daily = getDailyContent(new Date());
   const firstName = repData?.rep_name.split(' ')[0] ?? '';
-  const isOnboarding = repData ? daysSince(repData.seeded_at) < 30 : false;
+  const daysIn = repData ? daysSince(repData.seeded_at) : 0;
+  const isOnboarding = daysIn < 30;
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [newAction, setNewAction] = useState('');
+  const [obDone, setObDone] = useState<Record<string, boolean>>({});
+  const obKey = `ob_progress_${repData?.rep_name ?? 'default'}`;
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(obKey);
+      if (stored) setObDone(JSON.parse(stored));
+    } catch {}
+  }, [obKey]);
+
+  const toggleOb = (id: string) => {
+    const updated = { ...obDone, [id]: !obDone[id] };
+    setObDone(updated);
+    try { localStorage.setItem(obKey, JSON.stringify(updated)); } catch {}
+  };
   const actionsKey = `rep_actions_${repData?.rep_name ?? 'default'}`;
 
   useEffect(() => {
+    // Always migrate from 'default' key to real rep key if present
+    if (actionsKey !== 'rep_actions_default') {
+      try {
+        const migrated = localStorage.getItem('rep_actions_default');
+        if (migrated) {
+          localStorage.setItem(actionsKey, migrated);
+          localStorage.removeItem('rep_actions_default');
+        }
+      } catch {}
+    }
     try {
       const stored = localStorage.getItem(actionsKey);
       if (stored) { setActions(JSON.parse(stored)); return; }
     } catch {}
+    // Only seed defaults if nothing is stored — this branch only runs once per rep
     if (isOnboarding) {
       setActions([
         { id: '1', text: 'Complete your first mock pitch in Train mode', done: false },
@@ -815,7 +872,7 @@ function HomeTab({ repData, streak, onNav }: {
         { id: '3', text: 'Log outcomes from last week\'s activations', done: false },
       ]);
     }
-  }, [actionsKey, isOnboarding]);
+  }, [actionsKey]); // intentionally omit isOnboarding — only re-run when key changes, not on every render
 
   const saveActions = (updated: ActionItem[]) => {
     setActions(updated);
@@ -875,8 +932,14 @@ function HomeTab({ repData, streak, onNav }: {
           )}
         </div>
         {isOnboarding && (
-          <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8 }}>
-            <p style={{ fontSize: 11, color: '#818cf8' }}>Onboarding mode — your first {30 - daysSince(repData!.seeded_at)} days. Work through the checklist below to get up to speed.</p>
+          <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#818cf8' }}>New hire mode — day {daysIn + 1} of 30</p>
+              <p style={{ fontSize: 11, color: '#818cf8', fontFamily: 'monospace' }}>{30 - daysIn} days left</p>
+            </div>
+            <div style={{ height: 4, background: 'rgba(99,102,241,0.15)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${Math.min(100, (daysIn / 30) * 100)}%`, background: '#818cf8', borderRadius: 4, transition: 'width 0.3s' }} />
+            </div>
           </div>
         )}
       </div>
@@ -906,12 +969,17 @@ function HomeTab({ repData, streak, onNav }: {
       <div>
         <p style={labelStyle}>Jump to</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {[
+          {(isOnboarding ? [
+            { label: 'Train mode', sub: 'Start here — practice your first pitch', mode: 'train' as Mode, accent: true },
+            { label: 'Ask anything', sub: 'Objections, pricing, features', mode: 'ask' as Mode, accent: false },
+            { label: 'ROI calculator', sub: 'Build the case live', mode: 'roi' as Mode, accent: false },
+            { label: 'Prep brief', sub: 'Generate before your call', mode: 'prep' as Mode, accent: false },
+          ] : [
             { label: 'Prep brief', sub: recentBrief ? `Last: ${recentBrief.name}` : 'Generate before your call', mode: 'prep' as Mode, accent: true },
             { label: 'Ask anything', sub: 'Objections, pricing, features', mode: 'ask' as Mode, accent: false },
             { label: 'ROI calculator', sub: 'Build the case live', mode: 'roi' as Mode, accent: false },
             { label: 'Train mode', sub: 'Practice a full pitch', mode: 'train' as Mode, accent: false },
-          ].map(item => (
+          ]).map(item => (
             <button key={item.mode} onClick={() => onNav(item.mode)} style={{
               ...cardStyle, cursor: 'pointer', textAlign: 'left',
               borderColor: item.accent ? 'rgba(255,76,0,0.3)' : 'var(--border)',
@@ -924,34 +992,68 @@ function HomeTab({ repData, streak, onNav }: {
         </div>
       </div>
 
-      {/* Action items */}
-      <div>
-        <p style={labelStyle}>{isOnboarding ? 'Onboarding checklist' : 'For you'}</p>
-        <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {actions.sort((a, b) => Number(a.done) - Number(b.done)).map((item, idx) => (
-            <div key={item.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
-              borderBottom: idx < actions.length - 1 ? '1px solid var(--border)' : 'none',
-            }}>
-              <input type="checkbox" checked={item.done} onChange={() => toggleAction(item.id)}
-                style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, cursor: 'pointer' }} />
-              <p style={{ flex: 1, fontSize: 12, color: item.done ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.done ? 'line-through' : 'none', lineHeight: 1.4 }}>{item.text}</p>
-              <button onClick={() => deleteAction(item.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>x</button>
+      {/* Action items — onboarding staged checklist or regular list */}
+      {isOnboarding ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {ONBOARDING_WEEKS.map((week, wi) => {
+            const weekDone = week.items.every(it => obDone[it.id]);
+            const weekStart = wi * 7;
+            const isActive = daysIn >= weekStart;
+            return (
+              <div key={week.label}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <p style={{ ...labelStyle, margin: 0, opacity: isActive ? 1 : 0.4 }}>{week.label}</p>
+                  {weekDone && <span style={{ fontSize: 10, color: '#10b981', fontFamily: 'monospace', fontWeight: 600 }}>DONE</span>}
+                </div>
+                <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: 0, opacity: isActive ? 1 : 0.5 }}>
+                  {week.items.map((item, idx) => (
+                    <div key={item.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
+                      borderBottom: idx < week.items.length - 1 ? '1px solid var(--border)' : 'none',
+                    }}>
+                      <input type="checkbox" checked={!!obDone[item.id]} onChange={() => isActive && toggleOb(item.id)}
+                        disabled={!isActive}
+                        style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, cursor: isActive ? 'pointer' : 'default' }} />
+                      <p style={{ flex: 1, fontSize: 12, color: obDone[item.id] ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: obDone[item.id] ? 'line-through' : 'none', lineHeight: 1.4 }}>{item.text}</p>
+                      {item.mode && !obDone[item.id] && isActive && (
+                        <button onClick={() => onNav(item.mode!)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--accent)', cursor: 'pointer', fontSize: 10, fontWeight: 600, padding: '2px 7px', flexShrink: 0 }}>Go</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div>
+          <p style={labelStyle}>For you</p>
+          <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {[...actions].sort((a, b) => Number(a.done) - Number(b.done)).map((item, idx) => (
+              <div key={item.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0',
+                borderBottom: idx < actions.length - 1 ? '1px solid var(--border)' : 'none',
+              }}>
+                <input type="checkbox" checked={item.done} onChange={() => toggleAction(item.id)}
+                  style={{ accentColor: 'var(--accent)', width: 14, height: 14, flexShrink: 0, cursor: 'pointer' }} />
+                <p style={{ flex: 1, fontSize: 12, color: item.done ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.done ? 'line-through' : 'none', lineHeight: 1.4 }}>{item.text}</p>
+                <button onClick={() => deleteAction(item.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14, padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>x</button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: actions.length > 0 ? 8 : 0 }}>
+              <input
+                value={newAction} onChange={e => setNewAction(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addAction()}
+                placeholder="Add item..."
+                style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 12, padding: '4px 0', outline: 'none' }}
+              />
+              {newAction && (
+                <button onClick={addAction} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0 }}>Add</button>
+              )}
             </div>
-          ))}
-          <div style={{ display: 'flex', gap: 8, marginTop: actions.length > 0 ? 8 : 0 }}>
-            <input
-              value={newAction} onChange={e => setNewAction(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addAction()}
-              placeholder="Add item..."
-              style={{ flex: 1, background: 'transparent', border: 'none', borderBottom: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 12, padding: '4px 0', outline: 'none' }}
-            />
-            {newAction && (
-              <button onClick={addAction} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11, fontWeight: 600, padding: 0 }}>Add</button>
-            )}
           </div>
         </div>
-      </div>
+      )}
 
       {/* Daily quote */}
       <div style={{ padding: '10px 14px', background: 'var(--bg-strip)', borderRadius: 10, borderLeft: '2px solid var(--accent)' }}>
@@ -972,8 +1074,8 @@ interface PrepBrief {
   one_close: string; confidence: 'high' | 'medium' | 'low'; confidence_reason: string;
 }
 
-function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx, onBriefGenerated }: {
-  repData: RepData | null; selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void; onBriefGenerated?: () => void;
+function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccountIdx, onBriefGenerated }: {
+  repData: RepData | null; repDataLoaded: boolean; selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void; onBriefGenerated?: () => void;
 }) {
   const [brief, setBrief] = useState<PrepBrief | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1010,7 +1112,13 @@ function PrepTab({ repData, selectedAccountIdx, setSelectedAccountIdx, onBriefGe
   const confBg = { high: 'rgba(16,185,129,0.08)', medium: 'rgba(245,158,11,0.08)', low: 'rgba(220,38,38,0.08)' };
   const statusIcon = { pending: { icon: '○', color: '#d97706' }, likely_done: { icon: '✓', color: '#059669' }, unknown: { icon: '?', color: 'var(--text-tertiary)' } };
 
-  if (!repData) return <div style={{ paddingTop: 48, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Loading account data...</div>;
+  if (!repDataLoaded) return <div style={{ paddingTop: 48, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Loading account data...</div>;
+  if (!repData) return (
+    <div style={{ paddingTop: 48, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: '48px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <p style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>No accounts seeded yet</p>
+      <p style={{ fontSize: 12 }}>Ask your manager to add your pipeline, or use Ask mode to prep for a call manually.</p>
+    </div>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1365,6 +1473,11 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // Load persisted language after mount (avoids SSR hydration mismatch)
+  useEffect(() => {
+    try { const s = localStorage.getItem('rep_language'); if (s) setLanguage(s); } catch {}
+  }, []);
+
   // Clean up speech + polling on unmount
   useEffect(() => () => {
     window.speechSynthesis?.cancel();
@@ -1381,13 +1494,25 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
 
   const currentLang = LANGUAGES.find(l => l.code === language) ?? LANGUAGES[0];
 
+  const langPickerRef = useRef<HTMLDivElement>(null);
   const setLang = (code: string) => {
     setLanguage(code);
     try { localStorage.setItem('rep_language', code); } catch {}
     setShowLangPicker(false);
   };
 
-  // Load history on mount
+  useEffect(() => {
+    if (!showLangPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (langPickerRef.current && !langPickerRef.current.contains(e.target as Node)) {
+        setShowLangPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showLangPicker]);
+
+  // Load history when repData arrives (it comes in async after mount)
   useEffect(() => {
     const repKey = repData?.rep_name ?? null;
     if (!repKey) return;
@@ -1401,8 +1526,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
         .reverse();
       setRecentQuestions(questions);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [repData?.rep_name, mode]);
 
   // Save history whenever messages change
   useEffect(() => {
@@ -1605,7 +1729,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
       <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', flexShrink: 0, background: 'var(--bg-header)' }}>
         <form onSubmit={e => { e.preventDefault(); submit(input); }} style={{ maxWidth: 720, margin: '0 auto', display: 'flex', gap: 8, position: 'relative' }}>
           {/* Language picker */}
-          <div style={{ position: 'relative', flexShrink: 0 }}>
+          <div ref={langPickerRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button type="button" onClick={() => setShowLangPicker(p => !p)}
               title="Switch language"
               style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '0 10px', height: 42, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text-secondary)', fontSize: 13 }}>
@@ -1924,6 +2048,7 @@ export default function Home() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('home');
   const [repData, setRepData] = useState<RepData | null>(null);
+  const [repDataLoaded, setRepDataLoaded] = useState(false);
   const [selectedAccountIdx, setSelectedAccountIdx] = useState<number | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [activeTheme, setActiveTheme] = useState<Theme>(() => getThemeForDate(new Date()));
@@ -1961,8 +2086,8 @@ export default function Home() {
     if (!repEmail) return;
     fetch(`/api/accounts?email=${encodeURIComponent(repEmail)}`)
       .then(r => r.json())
-      .then(d => { if (!d.error) setRepData(d as RepData); })
-      .catch(() => {});
+      .then(d => { if (!d.error) setRepData(d as RepData); setRepDataLoaded(true); })
+      .catch(() => { setRepDataLoaded(true); });
   }, [repEmail]);
 
   const toggleDark = useCallback(() => {
@@ -1982,8 +2107,8 @@ export default function Home() {
     setShowOnboarding(false);
   }, []);
 
-  // Show spinner while session loads
-  if (status === 'loading' || status === 'unauthenticated') return (
+  // Show spinner while email not yet loaded
+  if (!repEmail) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a' }}>
       <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid #FF4C00', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -1991,6 +2116,8 @@ export default function Home() {
   );
 
   const TAB_LABELS: Record<Mode, string> = { home: 'Home', ask: 'Ask', listen: 'Live', train: 'Train', roi: 'ROI', prep: 'Prep', accounts: 'Pipeline', proof: 'Proof' };
+  const TAB_ICONS: Record<Mode, string> = { home: '⌂', ask: '💬', listen: '🎙', train: '🎯', roi: '📊', prep: '📋', accounts: '🏢', proof: '⭐' };
+  const TAB_ORDER: Mode[] = ['home', 'ask', 'train', 'prep', 'roi', 'accounts', 'listen', 'proof'];
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)' }}>
@@ -2016,7 +2143,7 @@ export default function Home() {
               <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                 Tables <span style={{ color: 'var(--accent)' }}>Rep</span>
               </span>
-              <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 6, padding: '1px 6px', fontFamily: 'monospace' }}>Jul 2026</span>
+              <span className="mobile-hide" style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 6, padding: '1px 6px', fontFamily: 'monospace' }}>Jul 2026</span>
             </div>
             {/* Active exec badge */}
             {activeTheme.exec && <ExecBadge exec={activeTheme.exec} />}
@@ -2034,7 +2161,7 @@ export default function Home() {
           {/* Right: streak + rep + theme controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
             {streak >= 2 && (
-              <div title={`${streak}-day streak`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,76,0,0.08)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 8, padding: '3px 8px' }}>
+              <div className="mobile-hide" title={`${streak}-day streak`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,76,0,0.08)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 8, padding: '3px 8px' }}>
                 <span style={{ fontSize: 13 }}>🔥</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace' }}>{streak}</span>
               </div>
@@ -2057,52 +2184,66 @@ export default function Home() {
       </header>
 
       {/* Content */}
-      {mode === 'home' ? (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />
-        </div>
-      ) : mode === 'listen' ? (
-        <ListenTab repData={repData} />
-      ) : mode === 'accounts' ? (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
-          <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            {repData ? <AccountsTab data={repData} /> : (
-              <div style={{ paddingTop: 48, textAlign: 'center' }}>
-                <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No data for <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-strip)', padding: '1px 6px', borderRadius: 4 }}>{repEmail}</code>.</p>
-                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>Ask Dan to run <code style={{ fontFamily: 'monospace', fontSize: 10 }}>seed_rep_accounts.py</code></p>
-              </div>
-            )}
+      <div className="mobile-content-pad" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {mode === 'home' ? (
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />
           </div>
-        </div>
-      ) : mode === 'prep' ? (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
-          <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            <PrepTab repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
-          </div>
-        </div>
-      ) : mode === 'roi' ? (
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          <ROICalculator />
-        </div>
-      ) : mode === 'proof' ? (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ borderBottom: '1px solid var(--border)', padding: '8px 16px', background: 'var(--bg-strip)', flexShrink: 0 }}>
-            <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>Customer Proof</p>
-                <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Real restaurants using Toast Tables — by category</p>
-              </div>
-              <a href="https://www.magicpatterns.com/c/85kpuhe3owkyfvqsjfwmus" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
-                Open full screen ↗
-              </a>
+        ) : mode === 'listen' ? (
+          <ListenTab repData={repData} />
+        ) : mode === 'accounts' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
+            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+              {repData ? <AccountsTab data={repData} /> : (
+                <div style={{ paddingTop: 48, textAlign: 'center' }}>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No data for <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-strip)', padding: '1px 6px', borderRadius: 4 }}>{repEmail}</code>.</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>Ask Dan to run <code style={{ fontFamily: 'monospace', fontSize: 10 }}>seed_rep_accounts.py</code></p>
+                </div>
+              )}
             </div>
           </div>
-          <iframe src="https://01df6993-d785-4918-bacc-6c42c622de8f-render.magicpatterns.app/" style={{ flex: 1, width: '100%', border: 'none' }} title="Rep Assist Proof Slides" allow="fullscreen" />
-        </div>
-      ) : (
-        <ChatPane key={mode} mode={mode as 'ask' | 'train'} repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} />
-      )}
+        ) : mode === 'prep' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
+            <div style={{ maxWidth: 720, margin: '0 auto' }}>
+              <PrepTab repData={repData} repDataLoaded={repDataLoaded} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
+            </div>
+          </div>
+        ) : mode === 'roi' ? (
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <ROICalculator />
+          </div>
+        ) : mode === 'proof' ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ borderBottom: '1px solid var(--border)', padding: '8px 16px', background: 'var(--bg-strip)', flexShrink: 0 }}>
+              <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>Customer Proof</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Real restaurants using Toast Tables — by category</p>
+                </div>
+                <a href="https://www.magicpatterns.com/c/85kpuhe3owkyfvqsjfwmus" target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                  Open full screen ↗
+                </a>
+              </div>
+            </div>
+            <iframe src="https://01df6993-d785-4918-bacc-6c42c622de8f-render.magicpatterns.app/" style={{ flex: 1, width: '100%', border: 'none' }} title="Rep Assist Proof Slides" allow="fullscreen" />
+          </div>
+        ) : (
+          <ChatPane mode={mode as 'ask' | 'train'} repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} />
+        )}
+      </div>
+
+      {/* Bottom nav — mobile only */}
+      <nav className="bottom-nav">
+        {TAB_ORDER.map(m => (
+          <button key={m} onClick={() => setMode(m)} className={`bottom-nav-btn${mode === m ? ' active' : ''}`}>
+            <span className="bnav-icon">{TAB_ICONS[m]}</span>
+            {TAB_LABELS[m]}
+          </button>
+        ))}
+      </nav>
+      {/* 👀 */}
+      <img src="https://avatars.slack-edge.com/2021-08-24/2408527348998_5234371e14f5857d4195_512.jpg" alt="" aria-hidden="true" style={{ position: 'fixed', bottom: 8, right: 8, width: 28, height: 28, borderRadius: '50%', opacity: 0.03, pointerEvents: 'none', zIndex: 9999 }} />
     </div>
   );
 }
