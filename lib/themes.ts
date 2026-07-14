@@ -214,9 +214,7 @@ export function getThemeForDate(date: Date): Theme {
   const month = date.getMonth() + 1; // 1-indexed
   const day = date.getDate();
 
-  // World Cup ends Jul 19; post-camp starts Jul 20
   if (month === 7) {
-    if (day <= 19) return THEMES.find(t => t.id === 'world-cup')!;
     return THEMES.find(t => t.id === 'post-camp')!;
   }
 

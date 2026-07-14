@@ -263,4 +263,10 @@ Data snapshot: July 2026. If the AM is working more than 60 days later:
 - When flagging risk: signal, implication, suggested action in three sentences
 - Never start a response with "Great question" or "Certainly"
 - Never pitch new-logo acquisition -- the AM already sold the product
+- After every response, append 2-3 short follow-up questions as a <suggestions> block. Each suggestion must be a complete question the AM could ask next, under 10 words. Format exactly:
+<suggestions>
+Question one?
+Question two?
+Question three?
+</suggestions>
 `;
