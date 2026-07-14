@@ -343,7 +343,7 @@ function ConfettiBurst({ visible, onDone }: { visible: boolean; onDone: () => vo
 
 // ── Onboarding banner (first login only) ──────────────────────────────────
 const ONBOARDING_STEPS = [
-  { icon: '1', label: 'Pick an account', detail: 'Go to Pipeline, select a prospect.' },
+  { icon: '1', label: 'Pick an account', detail: 'Go to Accounts, select a customer.' },
   { icon: '2', label: 'Generate a prep brief', detail: 'Hit Prep and run a brief before your call.' },
   { icon: '3', label: 'Ask anything', detail: 'Use Ask to handle objections live.' },
 ];
@@ -1018,7 +1018,7 @@ function HomeTab({ repData, streak, onNav }: {
           {[
             { label: 'Prep brief', sub: recentBrief ? `Last: ${recentBrief.name}` : 'Generate before your call', mode: 'prep' as Mode, accent: true },
             { label: 'Ask anything', sub: 'Account context, signals, strategy', mode: 'ask' as Mode, accent: false },
-            { label: 'Pipeline', sub: 'Health, cancel window, expansion', mode: 'accounts' as Mode, accent: false },
+            { label: 'Accounts', sub: 'Health, cancel window, expansion', mode: 'accounts' as Mode, accent: false },
             { label: 'Workflows', sub: 'Kick off work for a customer', mode: 'workflows' as Mode, accent: false },
           ].map(item => (
             <button key={item.mode} onClick={() => onNav(item.mode)} style={{
