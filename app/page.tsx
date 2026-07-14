@@ -937,17 +937,6 @@ function HomeTab({ repData, streak, onNav }: {
             </div>
           )}
         </div>
-        {isOnboarding && (
-          <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#818cf8' }}>New hire mode - day {daysIn + 1} of 30</p>
-              <p style={{ fontSize: 11, color: '#818cf8', fontFamily: 'monospace' }}>{30 - daysIn} days left</p>
-            </div>
-            <div style={{ height: 4, background: 'rgba(99,102,241,0.15)', borderRadius: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${Math.min(100, (daysIn / 30) * 100)}%`, background: '#818cf8', borderRadius: 4, transition: 'width 0.3s' }} />
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Today's signals */}
