@@ -1473,10 +1473,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Load persisted language after mount (avoids SSR hydration mismatch)
-  useEffect(() => {
-    try { const s = localStorage.getItem('rep_language'); if (s) setLanguage(s); } catch {}
-  }, []);
+  // Language is session-only — do not persist, always start English
 
   // Clean up speech + polling on unmount
   useEffect(() => () => {
@@ -1497,7 +1494,6 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
   const langPickerRef = useRef<HTMLDivElement>(null);
   const setLang = (code: string) => {
     setLanguage(code);
-    try { localStorage.setItem('rep_language', code); } catch {}
     setShowLangPicker(false);
   };
 
@@ -1575,7 +1571,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
       )}
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
+      <div style={{ flex: messages.length === 0 ? '0 0 auto' : 1, overflowY: 'auto', padding: '16px 16px 8px' }}>
         <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {messages.length === 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1768,11 +1764,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
             Send
           </button>
         </form>
-        {language !== 'en' && (
-          <p style={{ textAlign: 'center', fontSize: 10, color: 'var(--accent)', fontFamily: 'monospace', marginTop: 4, maxWidth: 720, margin: '4px auto 0' }}>
-            {currentLang.flag} Responding in {currentLang.label}
-          </p>
-        )}
+        {/* language indicator intentionally omitted — Live mode handles its own */}
       </div>
     </>
   );
@@ -2075,6 +2067,8 @@ export default function Home() {
       if (t) setActiveTheme(t);
     }
     if (!localStorage.getItem('rep_onboarding_done')) setShowOnboarding(true);
+    // Remove stale language key — language is now session-only, never persisted
+    try { localStorage.removeItem('rep_language'); } catch {}
   }, []);
 
   // Apply theme + mode whenever either changes
