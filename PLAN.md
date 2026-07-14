@@ -1,131 +1,105 @@
 # Tables Rep Assist — Product Plan
 *Last updated: Jul 11, 2026*
 
-## What this is
-A web app for Toast Tables sales reps (starting with Growth/NB, e.g. Tanguy) that replaces scattered Slack threads, stale decks, and tribal knowledge with a single tool that covers the full sales motion: training, prep, in-call assist, and follow-up.
+## Vision
+A pre/during/post-call operating system for Toast Tables AEs. Every mode is grounded in real
+data — deal state, Chorus call history, live booking proof — not just a chatbot.
 
-Not a chatbot. A rep operating system with a chat interface as one of several surfaces.
-
----
-
-## Modes / Navigation (top-level tabs)
-
-### 1. Ask (current — needs UX fix)
-In-call and prep Q&A. Competitive objections, feature questions, qualifying guides, talk tracks.
-- Fix: render markdown properly (bold, lists, blockquotes)
-- Fix: suggestion tiles are generic — personalize to rep's region and recent accounts
-- Add: "copy response" button for pasting into Slack/email
-
-### 2. My Accounts
-Rep-specific view. Requires knowing who the rep is (see Auth section).
-- **Recent bookings for my customers** — pull from Snowflake (MAIN_BOOKING_CURRENT) filtered by rep's account list. Show: bookings/month trend, last active date, activation status.
-- **Similar accounts in my geography** — show 3–5 comparable activated accounts in same MSA/region. Used for social proof: "Here's a similar restaurant in Austin that activated in 2 weeks."
-- **At-risk flags** — accounts that have gone quiet, low activation, or dropped booking volume.
-
-### 3. Train
-Self-serve onboarding and ongoing education. Critical for new reps (Tanguy onboards July 14).
-- **Product fundamentals** — what Tables is, how it works, key differentiators vs POS-native competitors
-- **Case studies by use case** — fine dining, events/ticketing, large groups, multi-location chains
-- **Competitive deep dives** — OpenTable, Resy, SevenRooms, Tock, Eventbrite. Full feature comparison, pricing, switching objections.
-- **Qualification guide** — ICP scoring, red flags, fast-path signals
-- **Progress tracking** — which modules completed (nice to have, not MVP)
-
-### 4. Build Pitch
-Generate a leave-behind or deck for a specific prospect.
-- Input: account name, restaurant type, location, current provider, key pain points
-- Output: a 5–7 slide narrative (exportable PDF or shareable link) covering: the problem, Toast Tables solution, relevant case study, ROI framing, next steps
-- Uses Magic Patterns deck infrastructure we already have
-- Pulls live stats from stat registry for accuracy
-
-### 5. Demo (later)
-Sandbox environment where rep can show Tables UI without needing a real account.
-- Could be a read-only preprod account (preprod.eng.toast.app) with demo data loaded
-- Or a recorded walkthrough with hotspots (Arcade/Loom-style)
-- Out of scope for MVP but should be designed for from day one
+**North star pattern:** Mirror Nova (OC briefs) but for AEs. Same infrastructure
+(Snowflake + Chorus + Claude), different role and data joins.
 
 ---
 
-## Stats and data access controls
+## IA — 5 modes
 
-**The problem:** Some stats are external-safe, some are internal-only, some are embargoed.
+| Mode | Job | When |
+|------|-----|------|
+| **Prep** | Pre-call brief from Chorus history + deal stage | Before a call |
+| **Ask** | In-call Q&A — objections, features, stats | During a call |
+| **Proof** | Live screenshots of real toast.app booking pages by category | During a Zoom |
+| **Follow-up** | Draft follow-up email from Chorus action items | After a call |
+| **My Accounts** | Pipeline view, activation status, last Chorus call date | Anytime |
 
-**Proposed tiers:**
-
-| Tier | Examples | Visible to rep? |
-|------|----------|-----------------|
-| Public / external-safe | "16,000+ locations", activation rate ranges, general feature claims | Yes — always |
-| GTM-approved | Specific ARR figures, attach rates by team, exact location counts | Yes — with [External OK] label |
-| Internal-only | Finance plan vs actuals, PM roadmap details, engineering timelines | No — blocked at system prompt level |
-| Rep-confidential | Another rep's accounts, unpublished win/loss data | No |
-
-Implementation: system prompt already has `[CONFIRM WITH PM]` / `[External OK]` / `[Internal only]` labels. Need to:
-1. Hard-block Internal-only stats from being surfaced (remove from system prompt or gate in API)
-2. Show GTM-approved stats with a visual badge that signals "safe to share with prospect"
+Train collapses into Ask — rep says "teach me about X" and Ask handles it.
 
 ---
 
-## Auth / identity
+## Data sources
 
-Currently: open to anyone on toast-v0 Vercel team (Toast Okta SSO).
-
-To enable "My Accounts" mode, we need to know WHO the rep is:
-- **Option A (fast):** Ask rep to type their name/email on first use. Store in localStorage. No backend needed. Good for POC.
-- **Option B (proper):** Read the Vercel auth token (the SSO session includes the user's email). Pass it to the API route. Snowflake query filters by `rep_email`. Needs 1 backend change.
-
-Option A for July 14 POC. Option B for V2.
-
----
-
-## Data integrations
-
-| Data | Source | Query | Status |
-|------|--------|-------|--------|
-| Bookings by account | Snowflake MAIN_BOOKING_CURRENT | `booking_history_by_account` | Needs writing |
-| Activation status | Snowflake | `activation_status_by_account` | Needs writing |
-| Similar accounts (geo) | Snowflake | `similar_accounts_by_msa` | Needs writing |
-| Stats pack | `data/stat_registry.json` | already in system prompt | Live |
-| Competitive intel | `projects/competitive-intel/` | needs to be added to system prompt | Needs adding |
-
-For July 14: stats pack only (already live). Account-level data is V2.
-
----
-
-## UX fixes needed now
-
-1. **Markdown rendering** — `**bold**` showing as asterisks. Add a `MarkdownText` component that renders bold, lists, blockquotes, headers. ~30 min fix.
-2. **Response formatting in system prompt** — GPT-4o is returning prose with inline asterisks. Update system prompt to output cleaner structure: short answer first, then details, not wall-of-text.
-3. **Empty state** — replace generic tiles with mode-specific entry points (Ask / Train / Build Pitch)
-4. **Mobile** — currently desktop-only layout. Reps may use this on their phone before a call.
+| Source | What it provides | Table |
+|--------|-----------------|-------|
+| Snowflake / Opportunity | Deal stage, product SKU, close date | `TOAST.GTM.OPPORTUNITY` + `OPPORTUNITY_LINE_ITEM_FACT` |
+| Snowflake / Chorus | Full transcript, AI summary, action items | `TOAST.CS_ONBOARDING.CHORUS_AI_ENGAGEMENTS` |
+| Snowflake / Activation | Is account live, activation date | `TOAST.ANALYTICS_CORE_ARR.CURRENT_MODULE_ACTIVATION_ADOPTION` |
+| CDP / toast.app | Live screenshot of real booking page | Direct via Chrome DevTools |
 
 ---
 
 ## Build sequence
 
-### Now (before July 14)
-- [ ] Fix markdown rendering
-- [ ] Update system prompt response format
-- [ ] Add training content (case studies, onboarding path, product fundamentals)
-- [ ] Add competitive intel to system prompt
-- [ ] Basic mode navigation (Ask / Train tabs at minimum)
+### Step 1 — Chorus seeder ✅ DONE
+Extend `scripts/seed_rep_accounts.py` to pull the last 3 Chorus call summaries + action items
+per account (joined via `SALESFORCE_ACCOUNTID`). Writes into `data/rep-accounts.json` under
+each account's `chorus_calls` key. This is the data foundation for Prep and Follow-up.
 
-### V2 (July–August)
-- [ ] My Accounts tab with Snowflake integration
-- [ ] Rep identity (Option A: localStorage)
-- [ ] Similar accounts in geography
-- [ ] Stats access control tiers
+**Query:** `CHORUS_AI_ENGAGEMENTS` joined to rep's won accounts via `SALESFORCE_ACCOUNTID`.
+Fields: `SUMMARY`, `ACTION_ITEMS`, `CREATED_TIMESTAMP`, `ACCOUNT_NAME`, `PARTICIPANTS`.
 
-### V3
-- [ ] Build Pitch generator
-- [ ] Demo environment
-- [ ] Mobile optimization
-- [ ] Rep progress tracking (Train module)
+### Step 2 — Prep mode UI
+New tab. Rep types a prospect/account name. Pulls from seeded Chorus data for that account:
+last call summary, open action items, deal stage. Claude generates a 1-page pre-call brief:
+what was discussed before, what was promised, suggested opening angle.
+
+Fallback for prospects with no Chorus history: similar-account proof points + standard
+talk track for their category (fine dining, casual, event venue).
+
+### Step 3 — Follow-up mode UI
+New tab. Rep selects an account (or types name). Pulls latest Chorus action items. Claude
+drafts a follow-up email: specific to what was discussed, includes relevant activation stat,
+links to their toast.app booking page if they're live.
+
+### Step 4 — Proof mode UI
+New tab. Category picker: fine dining / wine bar / events / cooking class / supper club.
+CDP screenshots the relevant toast.app booking page live. Rep shares screen on Zoom and
+shows prospect a real, working booking page in their category.
+
+Bonus: if rep has a prospect typed in, auto-suggest the closest matching category.
+
+### Step 5 — My Accounts enhancements
+Add to each account card:
+- Last Chorus call date + one-line summary
+- Activation countdown (days since signed, target 30d)
+- Suggested next action (e.g. "Setup call overdue — draft nudge?")
 
 ---
 
-## Open questions
+## Stats and data access controls
 
-1. **Who owns this long-term?** Is this a Dan/PM project or does it become a Sales Enablement product?
-2. **Which sales team first?** Growth AEs (Tanguy's team) vs Inside vs Field?
-3. **Snowflake access for deployed app?** The app runs on Vercel serverless — needs a Snowflake service account, not SSO. Who sets that up?
-4. **Stats approval process?** Who signs off that a stat is GTM-safe before it goes in the system prompt?
-5. **Demo environment?** Does a preprod sandbox account exist? Who manages demo data?
+| Tier | Examples | Visible to rep? |
+|------|----------|-----------------|
+| Public / external-safe | "16,000+ locations", activation rate ranges | Yes — always |
+| GTM-approved | Specific ARR figures, attach rates | Yes — with [External OK] badge |
+| Internal-only | Finance plan vs actuals, roadmap details | No — blocked at system prompt |
+
+---
+
+## Auth / identity
+Currently: email typed on first use, stored in localStorage. Seeds data via Snowflake.
+V2: read Vercel SSO token to auto-identify rep.
+
+---
+
+## Connection to Nova
+Nova is the OC-facing version of the same pattern. Rep Assist is the AE-facing version.
+Both use Chorus + Snowflake as the data backbone. Both use Claude to generate briefs and
+draft emails. Shared infrastructure; different role filters.
+
+---
+
+## Future / out of scope for now
+- Push to Cowork (Claude Desktop) so reps use without opening a URL
+- Auto-refresh seeded data on a daily schedule
+- TAM/Salesforce open pipeline view
+- Multi-rep support without manual seeding (API-based lookup at query time)
+- Build Pitch generator (Magic Patterns deck per prospect)
+- Demo environment (preprod sandbox with demo data)

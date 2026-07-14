@@ -86,6 +86,7 @@ SELECT
     a.CITY,
     a.STATE,
     a.ACCOUNT_TOAST_GUID,
+    a.SALESFORCE_ACCOUNTID,
     a.SIGNED_DATE,
     COALESCE(act.SAAS_STATUS, 'Unknown') AS activation_status,
     COALESCE(act.IS_ACTIVATED, FALSE) AS is_activated,
@@ -115,6 +116,33 @@ GROUP BY 1
 ORDER BY 1
 """
 
+CHORUS_SQL = """
+SELECT
+    eng.ENGAGEMENT_ID,
+    eng.ACCOUNT_NAME,
+    CAST(eng.CREATED_TIMESTAMP AS DATE) AS call_date,
+    eng.PARTICIPANTS,
+    CAST(eng.SUMMARY AS STRING) AS summary,
+    CAST(eng.ACTION_ITEMS AS STRING) AS action_items
+FROM TOAST.CS_ONBOARDING.CHORUS_AI_ENGAGEMENTS eng
+WHERE eng.SALESFORCE_ACCOUNTID = '{account_id}'
+  AND eng.SUMMARY IS NOT NULL
+  AND eng.CREATED_TIMESTAMP >= DATEADD('MONTH', -12, CURRENT_DATE)
+ORDER BY eng.CREATED_TIMESTAMP DESC
+LIMIT 3
+"""
+
+COMPETITOR_SQL = """
+SELECT
+    c.ACCOUNT_TOAST_GUID,
+    b.VENDORS
+FROM TOAST.ANALYTICS_CORE.CUSTOMER c
+JOIN TOAST.GTM.BRIZO_PLACEKEYS bp ON c.SAFEGRAPH_PLACEKEY_ID = bp.PLACEKEY_ID
+JOIN TOAST.ANALYTICS_CORE.BRIZO_BUSINESS_DETAILS b ON bp.ESTABLISHMENT_ID = b.BRIZO_ID
+WHERE c.ACCOUNT_TOAST_GUID IN ({guids})
+  AND b.VENDORS IS NOT NULL
+"""
+
 SIMILAR_SQL = """
 SELECT
     c.CUSTOMER_NAME,
@@ -134,6 +162,26 @@ LIMIT 5
 """
 
 # Midwest states by region
+COMPETITOR_KEYWORDS = {
+    "opentable": "OpenTable",
+    "resy": "Resy",
+    "sevenrooms": "SevenRooms",
+    "tock": "Tock",
+    "yelp reservation": "Yelp Reservations",
+    "spothopper reservations": "Spothopper",
+}
+
+def detect_competitor(vendors_str: str) -> str:
+    """Return the first known reservation competitor found in VENDORS, or 'None'."""
+    if not vendors_str:
+        return "None"
+    lower = vendors_str.lower()
+    for keyword, label in COMPETITOR_KEYWORDS.items():
+        if keyword in lower:
+            return label
+    return "None"
+
+
 REGION_STATES = {
     "default": "'IA', 'MN', 'WI', 'NE', 'MO', 'IL', 'IN', 'OH', 'MI'",
     "northeast": "'NY', 'MA', 'CT', 'NJ', 'PA', 'RI', 'NH', 'VT', 'ME'",
@@ -159,16 +207,32 @@ def seed_rep(email: str, write: bool = False):
     accounts = []
     for _, row in df.iterrows():
         guid = row["ACCOUNT_TOAST_GUID"]
+        sf_account_id = row.get("SALESFORCE_ACCOUNTID", "")
+
         trend_df = quick_query(MONTHLY_TREND_SQL.format(guid=guid))
         trend = [
             {"month": str(r["MONTH"]), "bookings": int(r["BOOKINGS"]), "covers": int(r["COVERS"] or 0)}
             for _, r in trend_df.iterrows()
         ]
+
+        chorus_calls = []
+        if sf_account_id:
+            print(f"  Fetching Chorus calls for {row['CUSTOMER_NAME']}...", file=sys.stderr)
+            chorus_df = quick_query(CHORUS_SQL.format(account_id=sf_account_id))
+            for _, cr in chorus_df.iterrows():
+                chorus_calls.append({
+                    "call_date": str(cr["CALL_DATE"]),
+                    "participants": str(cr["PARTICIPANTS"] or ""),
+                    "summary": str(cr["SUMMARY"] or "").strip(),
+                    "action_items": str(cr["ACTION_ITEMS"] or "").strip(),
+                })
+
         accounts.append({
             "name": row["CUSTOMER_NAME"],
             "city": row["CITY"],
             "state": row["STATE"],
             "toast_guid": guid,
+            "salesforce_account_id": sf_account_id,
             "signed_date": str(row["SIGNED_DATE"]),
             "activation_status": row["ACTIVATION_STATUS"],
             "is_activated": bool(row["IS_ACTIVATED"]),
@@ -177,7 +241,24 @@ def seed_rep(email: str, write: bool = False):
             "covers_90d": int(row["COVERS_90D"] or 0),
             "last_booking_date": str(row["LAST_BOOKING_DATE"]) if row["LAST_BOOKING_DATE"] else None,
             "monthly_trend": trend,
+            "chorus_calls": chorus_calls,
         })
+
+    # Fetch competitor platform from Brizo for all accounts in one query
+    guids = [a["toast_guid"] for a in accounts if a["toast_guid"]]
+    competitor_map = {}
+    if guids:
+        print("  Fetching competitor platform data from Brizo...", file=sys.stderr)
+        guids_sql = ", ".join(f"'{g}'" for g in guids)
+        try:
+            comp_df = quick_query(COMPETITOR_SQL.format(guids=guids_sql))
+            for _, cr in comp_df.iterrows():
+                competitor_map[cr["ACCOUNT_TOAST_GUID"]] = detect_competitor(str(cr["VENDORS"] or ""))
+        except Exception as e:
+            print(f"  Warning: competitor lookup failed: {e}", file=sys.stderr)
+
+    for acct in accounts:
+        acct["current_booking_platform"] = competitor_map.get(acct["toast_guid"], "None")
 
     # Pick region states based on rep's region string
     region_lower = region.lower()

@@ -8,8 +8,8 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Tables Rep Assist",
-  description: "Toast Tables sales assistant",
+  title: "Tables AM Assist",
+  description: "Toast Tables account manager co-pilot",
 };
 
 export default function RootLayout({

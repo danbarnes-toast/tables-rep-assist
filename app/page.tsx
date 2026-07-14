@@ -489,18 +489,18 @@ interface ListenInsight {
   timestamp: number;
 }
 
-// Quick lookup — heard keyword → canned response card while AI generates
+// Quick lookup - heard keyword → canned response card while AI generates
 const QUICK_TRIGGERS: { keywords: string[]; type: ListenInsight['type']; trigger: string; response: string }[] = [
   { keywords: ['opentable', 'open table'], type: 'objection', trigger: 'OpenTable comparison', response: 'Toast Tables: $0 cover fee vs OT $1.50-$2.50/cover. Guest data stays with the restaurant, not OpenTable. Same-night orders available, OT is reservations-only.' },
   { keywords: ['resy'], type: 'objection', trigger: 'Resy comparison', response: 'Resy: strong NYC/fine dining. Tables: broader coverage + POS integration + same-night OO. Resy has no ordering. Pricing similar but no cover fee on Tables.' },
-  { keywords: ['how much', 'cost', 'price', 'pricing'], type: 'question', trigger: 'Pricing question', response: '$249/mo base. No per-cover fee. No contract required. OT equivalent would be $249 + $1.50-2.50/cover — at 500 covers/mo that\'s $1,000+/mo vs $249.' },
-  { keywords: ['google', 'reserve with google', 'rwg'], type: 'question', trigger: 'Reserve with Google', response: 'Tables is a Reserve with Google partner. Guests book directly from Google Search/Maps. No extra setup — it\'s included.' },
+  { keywords: ['how much', 'cost', 'price', 'pricing'], type: 'question', trigger: 'Pricing question', response: '$249/mo base. No per-cover fee. No contract required. OT equivalent would be $249 + $1.50-2.50/cover - at 500 covers/mo that\'s $1,000+/mo vs $249.' },
+  { keywords: ['google', 'reserve with google', 'rwg'], type: 'question', trigger: 'Reserve with Google', response: 'Tables is a Reserve with Google partner. Guests book directly from Google Search/Maps. No extra setup - it\'s included.' },
   { keywords: ['setup', 'onboarding', 'how long'], type: 'question', trigger: 'Setup timeline', response: 'Live in 1-2 weeks typically. OC walks through floor plan, schedule, service areas. Config Checker runs weekly to catch issues before they become problems.' },
   { keywords: ['cancel', 'contract', 'lock in', 'locked in'], type: 'objection', trigger: 'Contract / cancel', response: 'No long-term contract required. Month-to-month available. Restaurants stay because it works, not because they\'re locked in.' },
-  { keywords: ['deposit', 'pre-pay', 'prepay', 'credit card'], type: 'question', trigger: 'Deposits / prepayment', response: 'Tables supports deposits and prepayment natively. Restaurant sets the policy. Guest pays at booking. Integrated with Toast Payments — no third-party processor needed.' },
+  { keywords: ['deposit', 'pre-pay', 'prepay', 'credit card'], type: 'question', trigger: 'Deposits / prepayment', response: 'Tables supports deposits and prepayment natively. Restaurant sets the policy. Guest pays at booking. Integrated with Toast Payments - no third-party processor needed.' },
   { keywords: ['waitlist'], type: 'question', trigger: 'Waitlist', response: 'Tables has a native waitlist. Guests join from the host app or the website widget. SMS notifications when table is ready. No separate subscription.' },
-  { keywords: ['widget', 'website', 'embed'], type: 'question', trigger: 'Website widget', response: 'Embeddable booking widget for their site — copy/paste one line of code. Works on any website platform. Direct bookings = no third-party fee.' },
-  { keywords: ['data', 'guest data', 'crm', 'guestbook'], type: 'signal', trigger: 'Guest data / CRM interest', response: 'Guestbook: every reservation builds a guest profile. Visit history, preferences, dietary notes. Restaurant owns the data — it never goes to a competitor marketplace.' },
+  { keywords: ['widget', 'website', 'embed'], type: 'question', trigger: 'Website widget', response: 'Embeddable booking widget for their site - copy/paste one line of code. Works on any website platform. Direct bookings = no third-party fee.' },
+  { keywords: ['data', 'guest data', 'crm', 'guestbook'], type: 'signal', trigger: 'Guest data / CRM interest', response: 'Guestbook: every reservation builds a guest profile. Visit history, preferences, dietary notes. Restaurant owns the data - it never goes to a competitor marketplace.' },
 ];
 
 function detectTriggers(transcript: string): typeof QUICK_TRIGGERS[0] | null {
@@ -578,7 +578,7 @@ function ListenTab({ repData }: { repData: RepData | null }) {
         addInsight({ type: 'answer', trigger: 'Suggested response', response: answer.trim() });
       }
     } catch {
-      addInsight({ type: 'answer', trigger: 'Error', response: 'Could not reach AI — check connection.' });
+      addInsight({ type: 'answer', trigger: 'Error', response: 'Could not reach AI - check connection.' });
     } finally {
       setAiLoading(false);
     }
@@ -684,7 +684,7 @@ function ListenTab({ repData }: { repData: RepData | null }) {
         </div>
         {listening && (
           <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 5, maxWidth: 720, margin: '5px auto 0', fontFamily: 'monospace' }}>
-            Mic active — hears your voice only. To capture both sides, route Zoom audio through BlackHole (free, Mac).
+            Mic active - hears your voice only. To capture both sides, route Zoom audio through BlackHole (free, Mac).
           </p>
         )}
         {permError && (
@@ -751,7 +751,7 @@ function ListenTab({ repData }: { repData: RepData | null }) {
         </div>
       </div>
 
-      {/* Manual input — primary path */}
+      {/* Manual input - primary path */}
       <div style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', background: 'var(--bg-header)', flexShrink: 0 }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <form onSubmit={e => { e.preventDefault(); if (manualInput.trim()) { askAI(manualInput); setManualInput(''); } }} style={{ display: 'flex', gap: 8 }}>
@@ -789,7 +789,7 @@ interface ActionItem { id: string; text: string; done: boolean; }
 
 const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode?: Mode }[] }[] = [
   {
-    label: 'Week 1 — Learn the product',
+    label: 'Week 1 - Learn the product',
     items: [
       { id: 'ob1', text: 'Complete your first mock pitch in Train mode', mode: 'train' },
       { id: 'ob2', text: 'Ask the AI: "What are the top 3 OpenTable objections?"', mode: 'ask' },
@@ -797,7 +797,7 @@ const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode
     ],
   },
   {
-    label: 'Week 2 — Work your pipeline',
+    label: 'Week 2 - Work your pipeline',
     items: [
       { id: 'ob4', text: 'Generate a prep brief before your first real call', mode: 'prep' },
       { id: 'ob5', text: 'Review customer proof by category', mode: 'proof' },
@@ -805,7 +805,7 @@ const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode
     ],
   },
   {
-    label: 'Weeks 3-4 — Close your first deal',
+    label: 'Weeks 3-4 - Close your first deal',
     items: [
       { id: 'ob7', text: 'Run a mock call with a live objection in Train mode', mode: 'train' },
       { id: 'ob8', text: 'Use Live mode on a real Zoom call', mode: 'listen' },
@@ -857,7 +857,7 @@ function HomeTab({ repData, streak, onNav }: {
       const stored = localStorage.getItem(actionsKey);
       if (stored) { setActions(JSON.parse(stored)); return; }
     } catch {}
-    // Only seed defaults if nothing is stored — this branch only runs once per rep
+    // Only seed defaults if nothing is stored - this branch only runs once per rep
     if (isOnboarding) {
       setActions([
         { id: '1', text: 'Complete your first mock pitch in Train mode', done: false },
@@ -872,7 +872,7 @@ function HomeTab({ repData, streak, onNav }: {
         { id: '3', text: 'Log outcomes from last week\'s activations', done: false },
       ]);
     }
-  }, [actionsKey]); // intentionally omit isOnboarding — only re-run when key changes, not on every render
+  }, [actionsKey]); // intentionally omit isOnboarding - only re-run when key changes, not on every render
 
   const saveActions = (updated: ActionItem[]) => {
     setActions(updated);
@@ -934,7 +934,7 @@ function HomeTab({ repData, streak, onNav }: {
         {isOnboarding && (
           <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#818cf8' }}>New hire mode — day {daysIn + 1} of 30</p>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#818cf8' }}>New hire mode - day {daysIn + 1} of 30</p>
               <p style={{ fontSize: 11, color: '#818cf8', fontFamily: 'monospace' }}>{30 - daysIn} days left</p>
             </div>
             <div style={{ height: 4, background: 'rgba(99,102,241,0.15)', borderRadius: 4, overflow: 'hidden' }}>
@@ -970,7 +970,7 @@ function HomeTab({ repData, streak, onNav }: {
         <p style={labelStyle}>Jump to</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {(isOnboarding ? [
-            { label: 'Train mode', sub: 'Start here — practice your first pitch', mode: 'train' as Mode, accent: true },
+            { label: 'Train mode', sub: 'Start here - practice your first pitch', mode: 'train' as Mode, accent: true },
             { label: 'Ask anything', sub: 'Objections, pricing, features', mode: 'ask' as Mode, accent: false },
             { label: 'ROI calculator', sub: 'Build the case live', mode: 'roi' as Mode, accent: false },
             { label: 'Prep brief', sub: 'Generate before your call', mode: 'prep' as Mode, accent: false },
@@ -992,7 +992,7 @@ function HomeTab({ repData, streak, onNav }: {
         </div>
       </div>
 
-      {/* Action items — onboarding staged checklist or regular list */}
+      {/* Action items - onboarding staged checklist or regular list */}
       {isOnboarding ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {ONBOARDING_WEEKS.map((week, wi) => {
@@ -1290,8 +1290,8 @@ function AccountsTab({ data }: { data: RepData }) {
             const action = (() => {
               if (acct.is_activated || days === null) return null;
               if (days < 7) return { text: 'Schedule setup call', color: '#3b82f6', bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.2)' };
-              if (days < 14) return { text: 'Setup call overdue — check in', color: '#d97706', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' };
-              return { text: 'At risk — follow up now', color: '#dc2626', bg: 'rgba(220,38,38,0.08)', border: 'rgba(220,38,38,0.2)' };
+              if (days < 14) return { text: 'Setup call overdue - check in', color: '#d97706', bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' };
+              return { text: 'At risk - follow up now', color: '#dc2626', bg: 'rgba(220,38,38,0.08)', border: 'rgba(220,38,38,0.2)' };
             })();
 
             return (
@@ -1334,7 +1334,7 @@ function AccountsTab({ data }: { data: RepData }) {
                   {[
                     { label: 'bookings (90d)', value: acct.bookings_90d.toLocaleString() },
                     { label: 'covers (90d)', value: acct.covers_90d.toLocaleString() },
-                    { label: 'last booking', value: acct.last_booking_date ?? '—' },
+                    { label: 'last booking', value: acct.last_booking_date ?? '-' },
                   ].map(({ label, value }) => (
                     <div key={label} style={{ background: 'var(--bg-strip)', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
                       <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{value}</p>
@@ -1403,20 +1403,20 @@ function AccountsTab({ data }: { data: RepData }) {
 // ── Chat pane ──────────────────────────────────────────────────────────────
 const SUGGESTIONS: Record<'ask' | 'train', string[]> = {
   ask: [
-    'What do I say when a prospect uses OpenTable?',
-    'How do I qualify a prospect before pitching?',
-    'Can Tables handle ticketed events?',
-    'What stats are safe to share with a prospect?',
-    'Show me examples of private dining customers',
-    'What makes Tables different from SevenRooms?',
+    'Review this account and give me the opening angle',
+    'Draft a follow-up email for my last call',
+    'Which accounts in my book are at risk right now?',
+    'What upsell should I pitch to a healthy 90-day account?',
+    'How do I handle a customer who is not activating?',
+    'What features should I make sure my customer is using?',
   ],
   train: [
-    'Give me an intro to Toast Tables: what is it and who buys it?',
-    'Walk me through a full sales qualification conversation',
-    'Teach me the OpenTable competitive objection cold',
-    'What are the most common reasons deals stall?',
-    'Show me a case study for a fine dining prospect',
-    'How does activation work after a restaurant signs?',
+    'Walk me through activation best practices for a new account',
+    'What are the signals that an account is at churn risk?',
+    'How do I pitch Named Experiences to an existing customer?',
+    'Help me prepare for a QBR with a multi-location customer',
+    'What is the right cadence for AM touchpoints?',
+    'How do I escalate a product issue on behalf of a customer?',
   ],
 };
 
@@ -1453,7 +1453,7 @@ function speakText(text: string, lang: string) {
     if (match) utt.voice = match;
     window.speechSynthesis.speak(utt);
   };
-  // getVoices() is async in Chrome — wait for population if empty
+  // getVoices() is async in Chrome - wait for population if empty
   if (window.speechSynthesis.getVoices().length > 0) { assign(); }
   else { window.speechSynthesis.addEventListener('voiceschanged', assign, { once: true }); }
 }
@@ -1473,7 +1473,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
   const isLoading = chatStatus === 'streaming' || chatStatus === 'submitted';
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Language is session-only — do not persist, always start English
+  // Language is session-only - do not persist, always start English
 
   // Clean up speech + polling on unmount
   useEffect(() => () => {
@@ -1558,7 +1558,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
               style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
             >
               <option value="">Select account for personalized tips...</option>
-              {repData.accounts.map((a, i) => <option key={i} value={i}>{a.name} — {a.activation_status}</option>)}
+              {repData.accounts.map((a, i) => <option key={i} value={i}>{a.name} - {a.activation_status}</option>)}
             </select>
             {selected && (
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>
@@ -1764,7 +1764,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
             Send
           </button>
         </form>
-        {/* language indicator intentionally omitted — Live mode handles its own */}
+        {/* language indicator intentionally omitted - Live mode handles its own */}
       </div>
     </>
   );
@@ -1926,11 +1926,11 @@ function ROICalculator() {
       {/* Section 2: Day 1 demand gen */}
       <div style={sectionStyle}>
         <div style={headingStyle}>
-          <span>2. DEMAND GEN — DAY ONE</span>
+          <span>2. DEMAND GEN - DAY ONE</span>
           <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: 10 }}>OBSERVED</span>
         </div>
         <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(255,76,0,0.05)', borderRadius: 6, border: '1px solid rgba(255,76,0,0.15)', fontSize: 11, color: 'var(--text-secondary)' }}>
-          Only ~{Math.round(OT_NETWORK_PCT * 100)}% of OT bookings come from OT's own app. The rest is organic, Google, and direct — Toast Tables replaces that on day one.
+          Only ~{Math.round(OT_NETWORK_PCT * 100)}% of OT bookings come from OT's own app. The rest is organic, Google, and direct - Toast Tables replaces that on day one.
           {showInternal && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>[CITED: SevenRooms 2023 State of Restaurant Reservations]</span>}
         </div>
         <div style={rowStyle}>
@@ -1962,7 +1962,7 @@ function ROICalculator() {
       {/* Section 3: Aspirational demand gen */}
       <div style={sectionStyle}>
         <div style={headingStyle}>
-          <span>3. DEMAND GEN — INVEST</span>
+          <span>3. DEMAND GEN - INVEST</span>
           {showInternal && <span style={{ fontSize: 11, color: '#d97706', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(245,158,11,0.1)', padding: '2px 8px', borderRadius: 10 }}>ASPIRATIONAL</span>}
         </div>
         <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
@@ -1982,7 +1982,7 @@ function ROICalculator() {
           <div style={rowStyle}>
             <div>
               <span style={{ fontSize: 12 }}>Email marketing to guest list{assumedBadge('+15% ASSUMED')}</span>
-              {showInternal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>Industry benchmark (Klaviyo/SevenRooms) — no internal Snowflake data</div>}
+              {showInternal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>Industry benchmark (Klaviyo/SevenRooms) - no internal Snowflake data</div>}
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontWeight: 600 }}>+{emMonthlyLift} bookings/mo</div>
@@ -1994,7 +1994,7 @@ function ROICalculator() {
           <div style={{ ...rowStyle, borderBottom: 'none' }}>
             <div>
               <span style={{ fontSize: 12 }}>Toast Ads at ${ADS_MONTHLY_SPEND_DEFAULT}/mo{assumedBadge('$8-12 CPA DIRECTIONAL')}</span>
-              {showInternal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>No internal ROAS data — directional only</div>}
+              {showInternal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>No internal ROAS data - directional only</div>}
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontWeight: 600 }}>~{adsBookings} bookings/mo</div>
@@ -2067,7 +2067,7 @@ export default function Home() {
       if (t) setActiveTheme(t);
     }
     if (!localStorage.getItem('rep_onboarding_done')) setShowOnboarding(true);
-    // Remove stale language key — language is now session-only, never persisted
+    // Remove stale language key - language is now session-only, never persisted
     try { localStorage.removeItem('rep_language'); } catch {}
   }, []);
 
@@ -2162,7 +2162,7 @@ export default function Home() {
             )}
             {(firstName || repEmail) && (
               <button
-                title={`Signed in as ${repEmail ?? ''} — click to sign out`}
+                title={`Signed in as ${repEmail ?? ''} - click to sign out`}
                 onClick={async () => { await fetch('/api/logout', { method: 'POST' }); router.push('/login'); }}
                 style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)', cursor: 'pointer', padding: 0 }}
               >
@@ -2212,7 +2212,7 @@ export default function Home() {
               <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>Customer Proof</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Real restaurants using Toast Tables — by category</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Real restaurants using Toast Tables - by category</p>
                 </div>
                 <a href="https://www.magicpatterns.com/c/85kpuhe3owkyfvqsjfwmus" target="_blank" rel="noopener noreferrer"
                   style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
@@ -2227,7 +2227,7 @@ export default function Home() {
         )}
       </div>
 
-      {/* Bottom nav — mobile only */}
+      {/* Bottom nav - mobile only */}
       <nav className="bottom-nav">
         {TAB_ORDER.map(m => (
           <button key={m} onClick={() => setMode(m)} className={`bottom-nav-btn${mode === m ? ' active' : ''}`}>

@@ -1,5 +1,5 @@
 {
-  "name": "tables-rep-assist",
+  "name": "tables-am-assist",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -27,5 +27,6 @@
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
     "typescript": "^5"
-  }
+  },
+  "description": "Toast Tables AM co-pilot"
 }
