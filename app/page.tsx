@@ -2345,13 +2345,13 @@ export default function Home() {
       {/* Content */}
       <div className="mobile-content-pad" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {mode === 'home' ? (
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto' }}>
             <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />
           </div>
         ) : mode === 'listen' ? (
           <ListenTab repData={repData} />
         ) : mode === 'accounts' ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
+          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
               {repData ? <AccountsTab data={repData} /> : (
                 <div style={{ paddingTop: 48, textAlign: 'center' }}>
@@ -2362,13 +2362,13 @@ export default function Home() {
             </div>
           </div>
         ) : mode === 'prep' ? (
-          <div style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
+          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
               <PrepTab repData={repData} repDataLoaded={repDataLoaded} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
             </div>
           </div>
         ) : mode === 'workflows' ? (
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto' }}>
             <WorkflowsTab repData={repData} />
           </div>
         ) : mode === 'roi' ? (

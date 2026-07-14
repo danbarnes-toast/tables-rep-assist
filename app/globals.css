@@ -241,7 +241,8 @@ body {
       padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     .bottom-nav::-webkit-scrollbar { display: none; }
-    .mobile-content-pad { padding-bottom: 68px; }
+    .mobile-content-pad { padding-bottom: 0; }
+    .mobile-scroll-pad { padding-bottom: 80px; }
     .mobile-hide { display: none !important; }
     .header-wordmark-sub { display: none; }
   }
