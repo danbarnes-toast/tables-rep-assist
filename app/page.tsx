@@ -1314,6 +1314,48 @@ function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccoun
   );
 }
 
+// ── Chorus calls accordion ─────────────────────────────────────────────────
+function ChorusCallsAccordion({ calls }: { calls: ChorusCall[] }) {
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>Last Chorus Calls</p>
+      {calls.map((call, idx) => {
+        const items = (() => { try { return JSON.parse(call.action_items) as string[]; } catch { return call.action_items ? [call.action_items] : []; } })();
+        const summary = call.summary.replace(/<br>/gi, ' ').replace(/Action Items:[\s\S]*?Meeting Summary:/, 'Meeting Summary:').trim();
+        const isOpen = !!expanded[idx];
+        return (
+          <div key={idx} style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, overflow: 'hidden' }}>
+            <button
+              onClick={() => setExpanded(e => ({ ...e, [idx]: !e[idx] }))}
+              style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+            >
+              <p style={{ fontSize: 11, color: '#3b82f6', fontWeight: 500, margin: 0 }}>{call.call_date}</p>
+              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', transition: 'transform 0.2s', display: 'inline-block', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
+            </button>
+            {!isOpen && summary && (
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, padding: '0 12px 10px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{summary}</p>
+            )}
+            {isOpen && (
+              <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {summary && <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{summary}</p>}
+                {items.length > 0 && (
+                  <div>
+                    <p style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-tertiary)', marginBottom: 4 }}>Action items:</p>
+                    <ul style={{ paddingLeft: 14, margin: 0 }}>
+                      {items.map((item, i) => <li key={i} style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>{item}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Accounts tab ───────────────────────────────────────────────────────────
 function AccountsTab({ data }: { data: RepData }) {
   return (
@@ -1389,27 +1431,7 @@ function AccountsTab({ data }: { data: RepData }) {
                 )}
 
                 {(acct.chorus_calls?.length ?? 0) > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>Last Chorus Calls</p>
-                    {acct.chorus_calls!.map((call, idx) => {
-                      const items = (() => { try { return JSON.parse(call.action_items) as string[]; } catch { return call.action_items ? [call.action_items] : []; } })();
-                      return (
-                        <div key={idx} style={{ background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 10, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <p style={{ fontSize: 11, color: '#3b82f6', fontWeight: 500 }}>{call.call_date}</p>
-                          {call.summary && <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{call.summary.replace(/<br>/gi, ' ').replace(/Action Items:[\s\S]*?Meeting Summary:/, 'Meeting Summary:').trim()}</p>}
-                          {items.length > 0 && (
-                            <div>
-                              <p style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-tertiary)', marginBottom: 4 }}>Action items:</p>
-                              <ul style={{ paddingLeft: 14, margin: 0 }}>
-                                {items.slice(0, 3).map((item, i) => <li key={i} style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 2 }}>{item}</li>)}
-                                {items.length > 3 && <li style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>+{items.length - 3} more</li>}
-                              </ul>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <ChorusCallsAccordion calls={acct.chorus_calls!} />
                 )}
               </div>
             );
