@@ -11,7 +11,7 @@ import {
   type OtTierKey, type CategoryKey,
 } from '@/lib/roi-data';
 
-type Mode = 'home' | 'ask' | 'train' | 'prep' | 'roi' | 'accounts' | 'proof' | 'listen';
+type Mode = 'home' | 'ask' | 'train' | 'prep' | 'roi' | 'accounts' | 'proof' | 'listen' | 'workflows';
 
 // ── Toast flame SVG ────────────────────────────────────────────────────────
 function ToastFlame({ size = 16, className = '' }: { size?: number; className?: string }) {
@@ -890,7 +890,13 @@ function HomeTab({ repData, streak, onNav }: {
 
   const activated = repData?.accounts.filter(a => a.is_activated).length ?? 0;
   const total = repData?.accounts.length ?? 0;
-  const notActivated = total - activated;
+  // Accounts with no touchpoint in 60+ days (last_booking_date as proxy for engagement)
+  const coldAccounts = repData?.accounts.filter(a => {
+    if (!a.last_booking_date) return true;
+    return daysSince(a.last_booking_date) > 60;
+  }).length ?? 0;
+  // Expansion signal: activated accounts with fewer than 3 bookings in 90d (underperforming)
+  const expansionOpps = repData?.accounts.filter(a => a.is_activated && a.bookings_90d < 30).length ?? 0;
   const recentBrief = repData?.accounts.find(a => a.chorus_calls && a.chorus_calls.length > 0);
 
   const labelStyle: React.CSSProperties = {
@@ -944,10 +950,50 @@ function HomeTab({ repData, streak, onNav }: {
         )}
       </div>
 
-      {/* Pipeline pulse */}
+      {/* Today's signals */}
       {repData && (
         <div>
-          <p style={labelStyle}>Pipeline</p>
+          <p style={labelStyle}>Today's signals</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {coldAccounts > 0 && (
+              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{'🕐'}</span>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{coldAccounts} accounts with no touchpoint in 60+ days</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Going cold. Reach out before they escalate.</p>
+                  </div>
+                </div>
+              </button>
+            )}
+            {expansionOpps > 0 && (
+              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #10b981', borderColor: 'rgba(16,185,129,0.2)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{'📈'}</span>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{expansionOpps} accounts below booking baseline</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Live but underperforming. Potential for product expansion or coaching.</p>
+                  </div>
+                </div>
+              </button>
+            )}
+            <button onClick={() => onNav('ask')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #a78bfa', borderColor: 'rgba(167,139,250,0.2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 18 }}>{'🎫'}</span>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Check for open support tickets</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Ask the AI which accounts in your book have open Care tickets right now.</p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Book at a glance */}
+      {repData && (
+        <div>
+          <p style={labelStyle}>Book at a glance</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left' }}>
               <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{total}</p>
@@ -955,11 +1001,11 @@ function HomeTab({ repData, streak, onNav }: {
             </button>
             <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left' }}>
               <p style={{ fontSize: 22, fontWeight: 700, color: '#10b981', letterSpacing: '-0.02em' }}>{activated}</p>
-              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>activated</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>live and active</p>
             </button>
-            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderColor: notActivated > 0 ? 'rgba(245,158,11,0.3)' : 'var(--border)' }}>
-              <p style={{ fontSize: 22, fontWeight: 700, color: notActivated > 0 ? '#f59e0b' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{notActivated}</p>
-              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>need setup</p>
+            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderColor: coldAccounts > 0 ? 'rgba(245,158,11,0.3)' : 'var(--border)' }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: coldAccounts > 0 ? '#f59e0b' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{coldAccounts}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>going cold</p>
             </button>
           </div>
         </div>
@@ -969,17 +1015,12 @@ function HomeTab({ repData, streak, onNav }: {
       <div>
         <p style={labelStyle}>Jump to</p>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          {(isOnboarding ? [
-            { label: 'Train mode', sub: 'Start here - practice your first pitch', mode: 'train' as Mode, accent: true },
-            { label: 'Ask anything', sub: 'Objections, pricing, features', mode: 'ask' as Mode, accent: false },
-            { label: 'ROI calculator', sub: 'Build the case live', mode: 'roi' as Mode, accent: false },
-            { label: 'Prep brief', sub: 'Generate before your call', mode: 'prep' as Mode, accent: false },
-          ] : [
+          {[
             { label: 'Prep brief', sub: recentBrief ? `Last: ${recentBrief.name}` : 'Generate before your call', mode: 'prep' as Mode, accent: true },
-            { label: 'Ask anything', sub: 'Objections, pricing, features', mode: 'ask' as Mode, accent: false },
-            { label: 'ROI calculator', sub: 'Build the case live', mode: 'roi' as Mode, accent: false },
-            { label: 'Train mode', sub: 'Practice a full pitch', mode: 'train' as Mode, accent: false },
-          ]).map(item => (
+            { label: 'Ask anything', sub: 'Account context, signals, strategy', mode: 'ask' as Mode, accent: false },
+            { label: 'Pipeline', sub: 'Health, cancel window, expansion', mode: 'accounts' as Mode, accent: false },
+            { label: 'Workflows', sub: 'Kick off work for a customer', mode: 'workflows' as Mode, accent: false },
+          ].map(item => (
             <button key={item.mode} onClick={() => onNav(item.mode)} style={{
               ...cardStyle, cursor: 'pointer', textAlign: 'left',
               borderColor: item.accent ? 'rgba(255,76,0,0.3)' : 'var(--border)',
@@ -2035,6 +2076,119 @@ function ROICalculator() {
   );
 }
 
+// ── Workflows tab ──────────────────────────────────────────────────────────
+function WorkflowsTab({ repData }: { repData: RepData | null }) {
+  const [toastIQOpen, setToastIQOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const accounts = repData?.accounts ?? [];
+  const acctName = selectedAccount || '[account name]';
+
+  const toastIQMessage = `Hi! I wanted to follow up on our last conversation. Toast IQ is now available for your account and it only takes about 10 minutes to get set up. It can help you [automate guest responses, optimize your reservation flow, and surface insights from your bookings]. You can get started here: toast.app/iq -- let me know if you have any questions and I am happy to walk through it with you.`;
+
+  const copyMessage = () => {
+    navigator.clipboard.writeText(toastIQMessage.replace('[account name]', acctName)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const cardBase: React.CSSProperties = {
+    background: 'var(--bg-card)', border: '1px solid var(--border)',
+    borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10,
+  };
+
+  const workflows = [
+    { emoji: '📅', title: 'Scheduling agent', desc: 'Build a shift schedule or floor plan based on booking patterns and cover targets.', status: 'Next wave' },
+    { emoji: '📣', title: 'Marketing plan', desc: 'Draft a seasonal promo or email campaign based on slow periods and guest data.', status: 'Next wave' },
+    { emoji: '📊', title: 'Business review', desc: 'Auto-generate a QBR deck: covers, bookings, competitive benchmark, upsell opportunity.', status: 'Next wave' },
+  ];
+
+  return (
+    <div style={{ padding: '24px 16px', maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div>
+        <p style={{ fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.1em', color: 'var(--accent)', fontFamily: 'monospace', fontWeight: 600, marginBottom: 6 }}>Workflows</p>
+        <p style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>Do work for your customers</p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>Kick off AI-assisted tasks on behalf of a specific account. You stay in the loop at every decision point.</p>
+      </div>
+
+      {/* Toast IQ handoff - live */}
+      <div style={{ ...cardBase, borderColor: 'rgba(255,76,0,0.3)', background: 'rgba(255,76,0,0.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 22 }}>{'✨'}</span>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Toast IQ handoff</p>
+              <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Restaurant-facing AI setup, available today</p>
+            </div>
+          </div>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', background: 'rgba(255,76,0,0.12)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 20, padding: '2px 8px', fontFamily: 'monospace', textTransform: 'uppercase' as const }}>Live</span>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          When a customer is ready to self-serve, send them a message pointing them to Toast IQ. Takes 30 seconds. You get credit for the activation.
+        </p>
+        <button
+          onClick={() => setToastIQOpen(true)}
+          style={{ padding: '9px 16px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, alignSelf: 'flex-start' as const }}
+        >
+          Send to customer
+        </button>
+      </div>
+
+      {/* Upcoming workflow cards */}
+      {workflows.map(w => (
+        <div key={w.title} style={{ ...cardBase, opacity: 0.7 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 22 }}>{w.emoji}</span>
+              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{w.title}</p>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 20, padding: '2px 8px', fontFamily: 'monospace', textTransform: 'uppercase' as const }}>{w.status}</span>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{w.desc}</p>
+        </div>
+      ))}
+
+      {/* Toast IQ modal */}
+      {toastIQOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 18, padding: 24, maxWidth: 480, width: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Send Toast IQ message</p>
+              <button onClick={() => setToastIQOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>x</button>
+            </div>
+            {accounts.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>Select account (optional)</p>
+                <select
+                  value={selectedAccount}
+                  onChange={e => setSelectedAccount(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', background: 'var(--bg-page)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13 }}
+                >
+                  <option value="">No account selected</option>
+                  {accounts.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>Message to copy</p>
+              <div style={{ background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                <p style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{toastIQMessage}</p>
+              </div>
+            </div>
+            <button
+              onClick={copyMessage}
+              style={{ padding: '10px 16px', background: copied ? '#10b981' : 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'background 0.2s' }}
+            >
+              {copied ? 'Copied!' : 'Copy message'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
@@ -2109,9 +2263,9 @@ export default function Home() {
     </div>
   );
 
-  const TAB_LABELS: Record<Mode, string> = { home: 'Home', ask: 'Ask', listen: 'Live', train: 'Train', roi: 'ROI', prep: 'Prep', accounts: 'Pipeline', proof: 'Proof' };
-  const TAB_ICONS: Record<Mode, string> = { home: '⌂', ask: '💬', listen: '🎙', train: '🎯', roi: '📊', prep: '📋', accounts: '🏢', proof: '⭐' };
-  const TAB_ORDER: Mode[] = ['home', 'ask', 'train', 'prep', 'roi', 'accounts', 'listen', 'proof'];
+  const TAB_LABELS: Record<Mode, string> = { home: 'Home', ask: 'Ask', listen: 'Live', train: 'Train', roi: 'ROI', prep: 'Prep', accounts: 'Accounts', proof: 'Proof', workflows: 'Workflows' };
+  const TAB_ICONS: Record<Mode, string> = { home: '⌂', ask: '💬', listen: '🎙', train: '🎯', roi: '📊', prep: '📋', accounts: '🏢', proof: '⭐', workflows: '⚡' };
+  const TAB_ORDER: Mode[] = ['home', 'ask', 'prep', 'accounts', 'workflows'];
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)' }}>
@@ -2135,7 +2289,7 @@ export default function Home() {
             </div>
             <div>
               <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                Tables <span style={{ color: 'var(--accent)' }}>Rep</span>
+                Account <span style={{ color: 'var(--accent)' }}>Manager</span>
               </span>
               <span className="mobile-hide" style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 6, padding: '1px 6px', fontFamily: 'monospace' }}>Jul 2026</span>
             </div>
@@ -2145,7 +2299,7 @@ export default function Home() {
 
           {/* Center: tabs */}
           <div className="tab-bar">
-            {(['home', 'ask', 'listen', 'train', 'roi', 'prep', 'accounts', 'proof'] as Mode[]).map(m => (
+            {(['home', 'ask', 'prep', 'accounts', 'workflows'] as Mode[]).map(m => (
               <button key={m} onClick={() => setMode(m)} className={`tab-btn${mode === m ? ' active' : ''}`}>
                 {TAB_LABELS[m]}
               </button>
@@ -2201,6 +2355,10 @@ export default function Home() {
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
               <PrepTab repData={repData} repDataLoaded={repDataLoaded} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
             </div>
+          </div>
+        ) : mode === 'workflows' ? (
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <WorkflowsTab repData={repData} />
           </div>
         ) : mode === 'roi' ? (
           <div style={{ flex: 1, overflowY: 'auto' }}>
