@@ -408,7 +408,7 @@ function getDailyContent(date: Date) {
 // ── Identity gate ──────────────────────────────────────────────────────────
 function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) => void; activeTheme: Theme }) {
   const [email, setEmail] = useState('');
-  const [daily] = useState(() => getDailyContent(new Date()));
+  const daily = getDailyContent(new Date());
 
   return (
     <div style={{

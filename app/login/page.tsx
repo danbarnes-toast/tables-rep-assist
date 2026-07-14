@@ -28,7 +28,7 @@ function getDailyLoginContent(d: Date) {
 
 function LoginContent() {
   const router = useRouter();
-  const [daily] = useState(() => getDailyLoginContent(new Date()));
+  const daily = getDailyLoginContent(new Date());
   const [email, setEmail] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [submitting, setSubmitting] = useState(false);
