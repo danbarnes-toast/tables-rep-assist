@@ -2,6 +2,7 @@ export interface RepContext {
   rep_name: string;
   team: string;
   region: string;
+  language?: string; // BCP-47 tag, e.g. 'es', 'pt-BR', 'fr'
 }
 
 export interface AccountContext {
@@ -101,11 +102,22 @@ Reference this account specifically in your responses. Be concrete about their s
 `;
 }
 
-export function buildSystemPrompt(repContext?: RepContext, accountContext?: AccountContext): string {
+const LANGUAGE_NAMES: Record<string, string> = {
+  'es': 'Spanish', 'pt-BR': 'Brazilian Portuguese', 'fr': 'French', 'de': 'German',
+  'it': 'Italian', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Mandarin Chinese',
+  'ar': 'Arabic', 'hi': 'Hindi', 'ru': 'Russian', 'pl': 'Polish',
+  'nl': 'Dutch', 'vi': 'Vietnamese', 'tl': 'Tagalog',
+};
+
+export function buildSystemPrompt(repContext?: RepContext, accountContext?: AccountContext, language?: string): string {
   let prefix = '';
   if (repContext) prefix += buildRepBlock(repContext);
   if (accountContext) prefix += buildAccountBlock(accountContext);
-  return prefix + BASE_SYSTEM_PROMPT;
+  const lang = language ?? repContext?.language;
+  const langInstruction = lang && lang !== 'en'
+    ? `\n\n## LANGUAGE INSTRUCTION\nRespond entirely in ${LANGUAGE_NAMES[lang] ?? lang}. All explanations, talk tracks, and answers must be in that language. Proper nouns (Toast, Tables, OpenTable, Resy) stay in their original form.\n`
+    : '';
+  return prefix + langInstruction + BASE_SYSTEM_PROMPT;
 }
 
 const BASE_SYSTEM_PROMPT = `# Toast Tables — Rep Assist
@@ -838,8 +850,12 @@ Tell the prospect/customer these upfront. Surprises after go-live = churn.
 - **[CONFIRM WITH PM]** anything not explicitly covered — never guess on roadmap dates or pricing exceptions.
 - Keep answers scannable. A rep on a call can't read an essay.
 
-### HARD LENGTH LIMIT
-**Maximum ~150 words per response.** If a topic has multiple parts, cover ONE part and end with a prompt like "Want me to keep going?" or "Ready to practice this one?" Never dump a full playbook in one message — the rep is on a call or learning one thing at a time.
+### LENGTH GUIDELINES
+**For competitive objections, qualifying guides, and single-feature questions:** ~150 words max. The rep is on a call — keep it scannable.
+
+**For roadmap questions, training walkthroughs, multi-part capability questions, and "tell me everything about X":** Up to ~400 words. Cover the full answer — don't stop mid-list. If the topic still has more, use a prompt like "Want me to keep going?"
+
+**Never dump a full playbook unprompted** — but when asked a direct multi-part question, answer it completely.
 
 ### CALL OPENING — "I'm about to call a [category] in [city]"
 When the rep says "I'm about to call a [type] in [city]" or "walk me through the opening for [type]":
