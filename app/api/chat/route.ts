@@ -2,14 +2,16 @@ import { openai } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages } from 'ai';
 import { buildSystemPrompt, type RepContext, type AccountContext } from '@/lib/system-prompt';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const body = await req.json();
   const uiMessages = Array.isArray(body) ? body : (body.messages ?? []);
   const messages = await convertToModelMessages(uiMessages);
 
-  const repContext: RepContext | undefined = body.repContext ?? undefined;
+  const repContext: RepContext | undefined = body.repContext
+    ? { ...body.repContext, language: body.language ?? body.repContext.language }
+    : undefined;
   const accountContext: AccountContext | undefined = body.accountContext ?? undefined;
   const system = buildSystemPrompt(repContext, accountContext);
 
@@ -17,6 +19,7 @@ export async function POST(req: Request) {
     model: openai('gpt-4o'),
     system,
     messages,
+    maxOutputTokens: 4096,
   });
 
   return result.toUIMessageStreamResponse();
