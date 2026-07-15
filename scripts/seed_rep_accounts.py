@@ -30,7 +30,7 @@ except ImportError:
     print("Run this script from tables-pm-workspace/ or ensure the path is correct.")
     sys.exit(1)
 
-REP_ACCOUNTS_PATH = Path(__file__).parent.parent / "data" / "rep-accounts.json"
+REP_ACCOUNTS_PATH = Path(__file__).parent.parent / "public" / "rep-accounts.json"
 
 ACCOUNTS_SQL = """
 WITH rep AS (
@@ -132,6 +132,22 @@ ORDER BY eng.CREATED_TIMESTAMP DESC
 LIMIT 3
 """
 
+ALL_MODULES_SQL = """
+SELECT
+    MODULE_NAME,
+    LINE_OF_BUSINESS,
+    IS_ACTIVATED,
+    IS_ADOPTED,
+    ACTIVATION_DATE,
+    SAAS_STATUS,
+    COALESCE(MODULE_TXN_TRAILING_30_DAYS, 0) AS txn_30d,
+    COALESCE(MODULE_VOL_TRAILING_30_DAYS, 0) AS vol_30d
+FROM TOAST.ANALYTICS_CORE_ARR.CURRENT_MODULE_ACTIVATION_ADOPTION
+WHERE SALESFORCE_ACCOUNTID = '{account_id}'
+  AND SAAS_STATUS IN ('Live', 'Backlog')
+ORDER BY LINE_OF_BUSINESS, MODULE_NAME
+"""
+
 COMPETITOR_SQL = """
 SELECT
     c.ACCOUNT_TOAST_GUID,
@@ -227,6 +243,32 @@ def seed_rep(email: str, write: bool = False):
                     "action_items": str(cr["ACTION_ITEMS"] or "").strip(),
                 })
 
+        # Fetch all product module activation/usage data from Snowflake
+        module_data = {}
+        if sf_account_id:
+            try:
+                mods_df = quick_query(ALL_MODULES_SQL.format(account_id=sf_account_id))
+                for _, mr in mods_df.iterrows():
+                    name = str(mr["MODULE_NAME"])
+                    module_data[name] = {
+                        "is_activated": bool(mr["IS_ACTIVATED"]),
+                        "is_adopted": bool(mr["IS_ADOPTED"]),
+                        "activation_date": str(mr["ACTIVATION_DATE"]) if mr.get("ACTIVATION_DATE") else None,
+                        "saas_status": str(mr["SAAS_STATUS"] or ""),
+                        "txn_30d": int(mr["TXN_30D"] or 0),
+                        "vol_30d": float(mr["VOL_30D"] or 0),
+                        "lob": str(mr["LINE_OF_BUSINESS"] or ""),
+                    }
+            except Exception as e:
+                print(f"  Warning: module data fetch failed for {row['CUSTOMER_NAME']}: {e}", file=sys.stderr)
+
+        # Compute days since last recorded Chorus call (not all contact channels)
+        if chorus_calls:
+            latest_call_date = max(c["call_date"] for c in chorus_calls)
+            days_since_touchpoint = (date.today() - date.fromisoformat(latest_call_date[:10])).days
+        else:
+            days_since_touchpoint = 999  # no recorded call found
+
         accounts.append({
             "name": row["CUSTOMER_NAME"],
             "city": row["CITY"],
@@ -242,6 +284,8 @@ def seed_rep(email: str, write: bool = False):
             "last_booking_date": str(row["LAST_BOOKING_DATE"]) if row["LAST_BOOKING_DATE"] else None,
             "monthly_trend": trend,
             "chorus_calls": chorus_calls,
+            "days_since_touchpoint": days_since_touchpoint,
+            "module_data": module_data,
         })
 
     # Fetch competitor platform from Brizo for all accounts in one query
@@ -307,9 +351,100 @@ def seed_rep(email: str, write: bool = False):
     return payload
 
 
+def refresh_rep(email: str):
+    """Re-pull only live signals (Chorus calls, bookings, activation) without full re-seed."""
+    print(f"Refreshing live signals for {email}...", file=sys.stderr)
+    data = json.loads(REP_ACCOUNTS_PATH.read_text())
+    if email not in data:
+        print(f"ERROR: {email} not in rep-accounts.json. Run full seed first.", file=sys.stderr)
+        sys.exit(1)
+
+    rep = data[email]
+    updated = 0
+    for acct in rep.get("accounts", []):
+        sf_id = acct.get("salesforce_account_id", "")
+        guid = acct.get("toast_guid", "")
+
+        # Refresh Chorus calls + touchpoint
+        if sf_id:
+            try:
+                chorus_df = quick_query(CHORUS_SQL.format(account_id=sf_id))
+                calls = []
+                for _, cr in chorus_df.iterrows():
+                    calls.append({
+                        "call_date": str(cr["CALL_DATE"]),
+                        "participants": str(cr["PARTICIPANTS"] or ""),
+                        "summary": str(cr["SUMMARY"] or "").strip(),
+                        "action_items": str(cr["ACTION_ITEMS"] or "").strip(),
+                    })
+                acct["chorus_calls"] = calls
+                if calls:
+                    latest = max(c["call_date"] for c in calls)
+                    acct["days_since_touchpoint"] = (date.today() - date.fromisoformat(latest[:10])).days
+                else:
+                    acct["days_since_touchpoint"] = 999
+            except Exception as e:
+                print(f"  Warning: Chorus refresh failed for {acct['name']}: {e}", file=sys.stderr)
+
+        # Refresh bookings
+        if guid:
+            try:
+                trend_df = quick_query(MONTHLY_TREND_SQL.format(guid=guid))
+                acct["monthly_trend"] = [
+                    {"month": str(r["MONTH"]), "bookings": int(r["BOOKINGS"]), "covers": int(r["COVERS"] or 0)}
+                    for _, r in trend_df.iterrows()
+                ]
+            except Exception as e:
+                print(f"  Warning: bookings refresh failed for {acct['name']}: {e}", file=sys.stderr)
+
+        # Refresh activation (Tables-specific) + all module data
+        if sf_id:
+            try:
+                act_df = quick_query(f"""
+                    SELECT IS_ACTIVATED, ACTIVATION_DATE, SAAS_STATUS
+                    FROM TOAST.ANALYTICS_CORE_ARR.CURRENT_MODULE_ACTIVATION_ADOPTION
+                    WHERE SALESFORCE_ACCOUNTID = '{sf_id}' AND MODULE_NAME = 'Toast Tables'
+                    LIMIT 1
+                """)
+                if not act_df.empty:
+                    acct["is_activated"] = bool(act_df.iloc[0]["IS_ACTIVATED"])
+                    acct["activation_status"] = str(act_df.iloc[0]["SAAS_STATUS"] or "Unknown")
+            except Exception as e:
+                print(f"  Warning: activation refresh failed for {acct['name']}: {e}", file=sys.stderr)
+
+            try:
+                mods_df = quick_query(ALL_MODULES_SQL.format(account_id=sf_id))
+                module_data = {}
+                for _, mr in mods_df.iterrows():
+                    name = str(mr["MODULE_NAME"])
+                    module_data[name] = {
+                        "is_activated": bool(mr["IS_ACTIVATED"]),
+                        "is_adopted": bool(mr["IS_ADOPTED"]),
+                        "activation_date": str(mr["ACTIVATION_DATE"]) if mr.get("ACTIVATION_DATE") else None,
+                        "saas_status": str(mr["SAAS_STATUS"] or ""),
+                        "txn_30d": int(mr["TXN_30D"] or 0),
+                        "vol_30d": float(mr["VOL_30D"] or 0),
+                        "lob": str(mr["LINE_OF_BUSINESS"] or ""),
+                    }
+                acct["module_data"] = module_data
+            except Exception as e:
+                print(f"  Warning: module data refresh failed for {acct['name']}: {e}", file=sys.stderr)
+
+        updated += 1
+        print(f"  Refreshed {acct['name']} ({updated}/{len(rep['accounts'])})", file=sys.stderr)
+
+    rep["seeded_at"] = str(date.today())
+    REP_ACCOUNTS_PATH.write_text(json.dumps(data, indent=2))
+    print(f"Refresh complete: {updated} accounts updated.", file=sys.stderr)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Seed rep account data from Snowflake")
     parser.add_argument("--rep", required=True, help="Rep Toast email address")
     parser.add_argument("--write", action="store_true", help="Write directly to data/rep-accounts.json")
+    parser.add_argument("--refresh", action="store_true", help="Refresh live signals only (Chorus, bookings, activation) without full re-seed")
     args = parser.parse_args()
-    seed_rep(args.rep, write=args.write)
+    if args.refresh:
+        refresh_rep(args.rep)
+    else:
+        seed_rep(args.rep, write=args.write)

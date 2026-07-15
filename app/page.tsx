@@ -3,7 +3,7 @@
 import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import type { RepContext, AccountContext } from '@/lib/system-prompt';
+import type { RepContext, AccountContext } from '@/lib/platform-types';
 import { TabShell } from '@/components/platform/TabShell';
 import type { NavTab } from '@/components/platform/MobileNav';
 import {
@@ -101,6 +101,13 @@ function Markdown({ text }: { text: string }) {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface ChorusCall { call_date: string; participants: string; summary: string; action_items: string; }
+interface ProductHealth {
+  product: string;
+  status: 'live_healthy' | 'live_stalled' | 'live_at_risk' | 'purchased_not_activated' | 'not_purchased';
+  purchased_date?: string;
+  last_activity_date?: string;
+  notes?: string;
+}
 interface Account {
   name: string; city: string; state: string;
   signed_date: string; activation_status: string; is_activated: boolean;
@@ -109,6 +116,13 @@ interface Account {
   chorus_calls?: ChorusCall[];
   current_booking_platform?: string;
   note?: string;
+  products?: ProductHealth[];
+  days_since_touchpoint?: number;
+  open_support_tickets?: number;
+  total_arr?: number;
+  renewal_date?: string;
+  account_health?: 'healthy' | 'at_risk' | 'cancel_risk';
+  locations?: number;
 }
 interface SimilarAccount { name: string; city: string; state: string; bookings_90d: number; covers_90d: number; }
 interface RepData {
@@ -123,6 +137,17 @@ function buildAccountPayload(acct: Account): AccountContext {
     activation_status: acct.activation_status,
     current_booking_platform: acct.current_booking_platform,
     bookings_90d: acct.bookings_90d,
+    covers_90d: acct.covers_90d,
+    is_activated: acct.is_activated,
+    signed_date: acct.signed_date,
+    monthly_trend: acct.monthly_trend,
+    products: acct.products,
+    days_since_touchpoint: acct.days_since_touchpoint,
+    open_support_tickets: acct.open_support_tickets,
+    total_arr: acct.total_arr,
+    renewal_date: acct.renewal_date,
+    account_health: acct.account_health,
+    locations: acct.locations,
     chorus_calls: (acct.chorus_calls ?? []).slice(0, 2).map(c => ({
       call_date: c.call_date,
       summary: c.summary.replace(/<[^>]+>/g, ' ').trim().slice(0, 300),
@@ -710,13 +735,17 @@ function HomeTab({ repData, streak, onNav }: {
 
   const activated = repData?.accounts.filter(a => a.is_activated).length ?? 0;
   const total = repData?.accounts.length ?? 0;
-  // Accounts with no touchpoint in 60+ days (last_booking_date as proxy for engagement)
-  const coldAccounts = repData?.accounts.filter(a => {
-    if (!a.last_booking_date) return true;
-    return daysSince(a.last_booking_date) > 60;
-  }).length ?? 0;
-  // Expansion signal: activated accounts with fewer than 3 bookings in 90d (underperforming)
+  // Accounts with no recorded Chorus call in 180+ days (Chorus only - email/Salesloft not captured)
+  const coldAccounts = repData?.accounts.filter(a => (a.days_since_touchpoint ?? 999) > 180).length ?? 0;
+  // Expansion signal: activated accounts with fewer than 30 bookings in 90d (underperforming)
   const expansionOpps = repData?.accounts.filter(a => a.is_activated && a.bookings_90d < 30).length ?? 0;
+  // Open support tickets across all accounts
+  const totalOpenTickets = repData?.accounts.reduce((s, a) => s + (a.open_support_tickets ?? 0), 0) ?? 0;
+  const ticketAccounts = repData?.accounts.filter(a => (a.open_support_tickets ?? 0) > 0).length ?? 0;
+  // Average ARR across book
+  const avgArr = repData && repData.accounts.length > 0
+    ? Math.round(repData.accounts.reduce((s, a) => s + (a.total_arr ?? 0), 0) / repData.accounts.length)
+    : 0;
   const recentBrief = repData?.accounts.find(a => a.chorus_calls && a.chorus_calls.length > 0);
 
   const labelStyle: React.CSSProperties = {
@@ -769,8 +798,8 @@ function HomeTab({ repData, streak, onNav }: {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 18 }}>{'🕐'}</span>
                   <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{coldAccounts} accounts with no touchpoint in 60+ days</p>
-                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Going cold. Reach out before they escalate.</p>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{coldAccounts} accounts with no recorded call in 180+ days</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>No Chorus call on record. Schedule a check-in before issues surface.</p>
                   </div>
                 </div>
               </button>
@@ -786,15 +815,27 @@ function HomeTab({ repData, streak, onNav }: {
                 </div>
               </button>
             )}
-            <button onClick={() => onNav('ask')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #a78bfa', borderColor: 'rgba(167,139,250,0.2)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 18 }}>{'🎫'}</span>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Check for open support tickets</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Ask the AI which accounts in your book have open Care tickets right now.</p>
+            {totalOpenTickets > 0 ? (
+              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #a78bfa', borderColor: 'rgba(167,139,250,0.2)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{'🎫'}</span>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{ticketAccounts} account{ticketAccounts !== 1 ? 's' : ''} with open support tickets ({totalOpenTickets} total)</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Review before these escalate into cancel risk.</p>
+                  </div>
                 </div>
-              </div>
-            </button>
+              </button>
+            ) : (
+              <button onClick={() => onNav('ask')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #a78bfa', borderColor: 'rgba(167,139,250,0.2)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{'🎫'}</span>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>No open support tickets</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Ask the AI about any account's health or expansion angle.</p>
+                  </div>
+                </div>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -816,6 +857,18 @@ function HomeTab({ repData, streak, onNav }: {
               <p style={{ fontSize: 22, fontWeight: 700, color: coldAccounts > 0 ? '#f59e0b' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{coldAccounts}</p>
               <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>going cold</p>
             </button>
+            {avgArr > 0 && (
+              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left' }}>
+                <p style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>${(avgArr / 1000).toFixed(1)}k</p>
+                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>avg ARR / acct</p>
+              </button>
+            )}
+            {totalOpenTickets > 0 && (
+              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderColor: 'rgba(167,139,250,0.3)' }}>
+                <p style={{ fontSize: 22, fontWeight: 700, color: '#a78bfa', letterSpacing: '-0.02em' }}>{totalOpenTickets}</p>
+                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>open tickets</p>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -947,6 +1000,12 @@ function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccoun
             signed_date: acct.signed_date, activation_status: acct.activation_status,
             is_activated: acct.is_activated, bookings_90d: acct.bookings_90d,
             current_booking_platform: acct.current_booking_platform,
+            products: acct.products,
+            days_since_touchpoint: acct.days_since_touchpoint,
+            open_support_tickets: acct.open_support_tickets,
+            total_arr: acct.total_arr,
+            account_health: acct.account_health,
+            locations: acct.locations,
             chorus_calls: (acct.chorus_calls ?? []).map(c => ({ call_date: c.call_date, summary: c.summary, action_items: c.action_items })),
           },
         }),
@@ -1192,27 +1251,55 @@ function AccountsTab({ data }: { data: RepData }) {
                   <div>
                     <p style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: 13 }}>{acct.name}</p>
                     <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{acct.city}, {acct.state} · Signed {acct.signed_date}</p>
-                    {acct.current_booking_platform && acct.current_booking_platform !== 'None' && (
-                      <span style={{ display: 'inline-block', marginTop: 4, background: 'rgba(139,92,246,0.08)', color: '#7c3aed', border: '1px solid rgba(139,92,246,0.2)', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 8 }}>
-                        on {acct.current_booking_platform}
-                      </span>
-                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                      {acct.current_booking_platform && acct.current_booking_platform !== 'None' && (
+                        <span style={{ background: 'rgba(139,92,246,0.08)', color: '#7c3aed', border: '1px solid rgba(139,92,246,0.2)', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 8 }}>
+                          on {acct.current_booking_platform}
+                        </span>
+                      )}
+                      {acct.total_arr != null && acct.total_arr > 0 && (
+                        <span style={{ background: 'var(--bg-strip)', color: 'var(--text-tertiary)', border: '1px solid var(--border)', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 8 }}>
+                          ${acct.total_arr.toLocaleString()} ARR
+                        </span>
+                      )}
+                      {acct.open_support_tickets != null && acct.open_support_tickets > 0 && (
+                        <span style={{ background: 'rgba(167,139,250,0.08)', color: '#7c3aed', border: '1px solid rgba(167,139,250,0.2)', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 8 }}>
+                          {acct.open_support_tickets} open ticket{acct.open_support_tickets !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10,
-                      background: acct.is_activated ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
-                      color: acct.is_activated ? '#059669' : '#d97706',
-                      border: `1px solid ${acct.is_activated ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
-                    }}>
-                      {acct.is_activated ? 'Activated' : acct.activation_status}
-                    </span>
+                    {acct.is_activated && acct.account_health ? (
+                      <span style={{
+                        fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10,
+                        background: acct.account_health === 'healthy' ? 'rgba(16,185,129,0.08)' : acct.account_health === 'at_risk' ? 'rgba(245,158,11,0.08)' : 'rgba(220,38,38,0.08)',
+                        color: acct.account_health === 'healthy' ? '#059669' : acct.account_health === 'at_risk' ? '#d97706' : '#dc2626',
+                        border: `1px solid ${acct.account_health === 'healthy' ? 'rgba(16,185,129,0.2)' : acct.account_health === 'at_risk' ? 'rgba(245,158,11,0.2)' : 'rgba(220,38,38,0.2)'}`,
+                      }}>
+                        {acct.account_health === 'healthy' ? 'Healthy' : acct.account_health === 'at_risk' ? 'At risk' : 'Cancel risk'}
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10,
+                        background: acct.is_activated ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+                        color: acct.is_activated ? '#059669' : '#d97706',
+                        border: `1px solid ${acct.is_activated ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                      }}>
+                        {acct.is_activated ? 'Activated' : acct.activation_status}
+                      </span>
+                    )}
                     {days !== null && (() => {
                       const target = new Date(acct.signed_date);
                       target.setDate(target.getDate() + 30);
                       const targetStr = target.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       return <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>activate by {targetStr} · day {days}</span>;
                     })()}
+                    {acct.days_since_touchpoint != null && acct.is_activated && (
+                      <span style={{ fontSize: 10, color: acct.days_since_touchpoint > 180 ? '#f59e0b' : 'var(--text-tertiary)' }}>
+                        last call: {acct.days_since_touchpoint >= 999 ? 'none on record' : `${acct.days_since_touchpoint}d ago`}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1238,6 +1325,58 @@ function AccountsTab({ data }: { data: RepData }) {
                 {acct.note && (
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)', borderRadius: 10, padding: '8px 12px' }}>{acct.note}</div>
                 )}
+
+                {acct.products && acct.products.length > 0 && (() => {
+                  const purchased = acct.products!.filter(p => p.status !== 'not_purchased');
+                  const atRisk = purchased.filter(p => ['live_at_risk', 'live_stalled', 'purchased_not_activated'].includes(p.status));
+                  const healthy = purchased.filter(p => p.status === 'live_healthy');
+                  const notPurchased = acct.products!.filter(p => p.status === 'not_purchased');
+                  const statusColors: Record<string, { color: string; bg: string }> = {
+                    live_healthy: { color: '#059669', bg: 'rgba(16,185,129,0.08)' },
+                    live_stalled: { color: '#d97706', bg: 'rgba(245,158,11,0.08)' },
+                    live_at_risk: { color: '#dc2626', bg: 'rgba(220,38,38,0.08)' },
+                    purchased_not_activated: { color: '#6366f1', bg: 'rgba(99,102,241,0.08)' },
+                    not_purchased: { color: 'var(--color-text-muted)', bg: 'transparent' },
+                  };
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>
+                        Product Portfolio
+                        {atRisk.length > 0 && <span style={{ marginLeft: 8, color: '#dc2626', fontWeight: 700 }}>{atRisk.length} at risk</span>}
+                      </p>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {purchased.map(p => {
+                          const sc = statusColors[p.status] ?? statusColors.live_healthy;
+                          return (
+                            <span key={p.product} title={p.notes ?? ''} style={{
+                              fontSize: 10, fontWeight: 500, padding: '3px 8px', borderRadius: 6,
+                              background: sc.bg, color: sc.color,
+                              border: `1px solid ${sc.color}30`,
+                              cursor: p.notes ? 'help' : 'default',
+                            }}>
+                              {p.product}
+                            </span>
+                          );
+                        })}
+                        {notPurchased.length > 0 && (
+                          <span style={{ fontSize: 10, color: 'var(--color-text-muted)', padding: '3px 0', alignSelf: 'center' }}>
+                            +{notPurchased.length} not yet
+                          </span>
+                        )}
+                      </div>
+                      {atRisk.length > 0 && (
+                        <div style={{ fontSize: 11, padding: '6px 10px', borderRadius: 8, background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.15)', color: '#dc2626' }}>
+                          Needs attention: {atRisk.map(p => `${p.product}${p.notes ? ` (${p.notes})` : ''}`).join(', ')}
+                        </div>
+                      )}
+                      {healthy.length > 0 && notPurchased.length > 0 && (
+                        <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', padding: '4px 0' }}>
+                          Expansion: {notPurchased.slice(0, 3).map(p => p.product).join(', ')}{notPurchased.length > 3 ? ` +${notPurchased.length - 3} more` : ''}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {(acct.chorus_calls?.length ?? 0) > 0 && (
                   <ChorusCallsAccordion calls={acct.chorus_calls!} />
@@ -2216,6 +2355,26 @@ export default function Home() {
       label: 'Workflows',
       icon: <WorkflowsIcon />,
       content: <WorkflowsTab repData={repData} />,
+    },
+    {
+      id: 'roi',
+      label: 'ROI',
+      icon: (
+        <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+        </svg>
+      ),
+      content: <ROICalculator />,
+    },
+    {
+      id: 'listen',
+      label: 'Live',
+      icon: (
+        <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
+        </svg>
+      ),
+      content: <ListenTab repData={repData} />,
     },
   ];
 

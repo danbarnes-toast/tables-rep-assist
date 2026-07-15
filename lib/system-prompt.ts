@@ -1,23 +1,5 @@
-export interface RepContext {
-  rep_name: string;
-  team: string;
-  region: string;
-  language?: string;
-}
-
-export interface AccountContext {
-  name: string;
-  city: string;
-  state: string;
-  activation_status: string;
-  current_booking_platform?: string;
-  bookings_90d: number;
-  covers_90d?: number;
-  monthly_trend?: { month: string; bookings: number; covers: number }[];
-  chorus_calls?: { call_date: string; summary: string; action_items: string }[];
-  is_activated?: boolean;
-  signed_date?: string;
-}
+import type { RepContext, AccountContext, ProductHealth } from '@/lib/platform-types';
+export type { RepContext, AccountContext, ProductHealth };
 
 function buildAMBlock(rep: RepContext): string {
   const firstName = rep.rep_name.split(' ')[0];
@@ -38,6 +20,14 @@ AM success metrics: product adoption rates, NPS/CSAT, net ARR retained, expansio
 
 `;
 }
+
+const PRODUCT_STATUS_LABELS: Record<ProductHealth['status'], string> = {
+  live_healthy: 'LIVE - healthy',
+  live_stalled: 'LIVE - stalled (no recent activity)',
+  live_at_risk: 'LIVE - at risk',
+  purchased_not_activated: 'PURCHASED - not yet activated',
+  not_purchased: 'not purchased',
+};
 
 function buildAccountBlock(acct: AccountContext): string {
   const competitor = acct.current_booking_platform && acct.current_booking_platform !== 'None'
@@ -73,21 +63,56 @@ function buildAccountBlock(acct: AccountContext): string {
     ? Math.floor((Date.now() - new Date(acct.signed_date).getTime()) / 86400000)
     : null;
 
+  let productBlock = '';
+  if (acct.products && acct.products.length > 0) {
+    const purchased = acct.products.filter(p => p.status !== 'not_purchased');
+    const notPurchased = acct.products.filter(p => p.status === 'not_purchased');
+    const atRisk = purchased.filter(p => p.status === 'live_at_risk' || p.status === 'live_stalled' || p.status === 'purchased_not_activated');
+    const healthy = purchased.filter(p => p.status === 'live_healthy');
+
+    productBlock = '\nProduct portfolio:\n';
+    purchased.forEach(p => {
+      productBlock += `- ${p.product}: ${PRODUCT_STATUS_LABELS[p.status]}`;
+      if (p.last_activity_date) productBlock += ` (last activity: ${p.last_activity_date})`;
+      if (p.notes) productBlock += ` -- ${p.notes}`;
+      productBlock += '\n';
+    });
+
+    if (atRisk.length > 0) {
+      productBlock += `\nAT-RISK PRODUCTS (require AM action): ${atRisk.map(p => p.product).join(', ')}\n`;
+    }
+    if (notPurchased.length > 0) {
+      productBlock += `\nNOT YET PURCHASED (expansion opportunities): ${notPurchased.map(p => p.product).join(', ')}\n`;
+    }
+    if (healthy.length > 0) {
+      productBlock += `\nHealthy products: ${healthy.map(p => p.product).join(', ')}\n`;
+    }
+  }
+
+  const healthTag = acct.account_health
+    ? { healthy: 'HEALTHY', at_risk: 'AT RISK', cancel_risk: 'CANCEL RISK' }[acct.account_health]
+    : null;
+
   return `## ACTIVE ACCOUNT: ${acct.name}
-Location: ${acct.city}, ${acct.state} | Tables status: ${acct.activation_status} | Prior booking platform: ${competitor}
-Bookings (90d): ${acct.bookings_90d} | Covers (90d): ${acct.covers_90d ?? 'N/A'}${bookingTrend ? `\n${bookingTrend}` : ''}${daysSinceSigned !== null ? `\nDays since signed: ${daysSinceSigned}` : ''}
-${callHistory}
-Reference this account specifically. Flag risks (slow booking ramp, open action items, inactivity). Surface growth opportunities across ALL Toast products, not just Tables.
+Location: ${acct.city}, ${acct.state}${acct.locations && acct.locations > 1 ? ` (${acct.locations} locations)` : ''} | Tables status: ${acct.activation_status} | Prior booking platform: ${competitor}${healthTag ? ` | Health: ${healthTag}` : ''}
+Bookings (90d): ${acct.bookings_90d} | Covers (90d): ${acct.covers_90d ?? 'N/A'}${acct.total_arr ? ` | ARR: $${acct.total_arr.toLocaleString()}` : ''}${bookingTrend ? `\n${bookingTrend}` : ''}${daysSinceSigned !== null ? `\nDays since signed: ${daysSinceSigned}` : ''}${acct.days_since_touchpoint !== undefined ? `\nDays since last Chorus-recorded call: ${acct.days_since_touchpoint >= 999 ? 'no call on record' : acct.days_since_touchpoint} (note: email and Salesloft outreach not captured here)` : ''}${acct.products?.some(p => p.notes?.includes('estimated') || p.notes?.includes('RNG')) ? '\nNote: some product health signals are estimated from activation status only - no usage-level data available for those products.' : ''}${acct.open_support_tickets ? `\nOpen support tickets: ${acct.open_support_tickets}` : ''}${acct.renewal_date ? `\nRenewal date: ${acct.renewal_date}` : ''}
+${productBlock}${callHistory}
+Reference this account specifically. Flag risks and opportunities across ALL active products. Prioritize at-risk products and stalled activations before pitching expansion.
 
 ---
 
 `;
 }
 
-export function buildSystemPrompt(repContext?: RepContext, accountContext?: AccountContext): string {
+export interface AMPromptContext {
+  repContext?: RepContext;
+  accountContext?: AccountContext;
+}
+
+export function buildSystemPrompt(ctx?: AMPromptContext): string {
   let prefix = '';
-  if (repContext) prefix += buildAMBlock(repContext);
-  if (accountContext) prefix += buildAccountBlock(accountContext);
+  if (ctx?.repContext) prefix += buildAMBlock(ctx.repContext);
+  if (ctx?.accountContext) prefix += buildAccountBlock(ctx.accountContext);
   return prefix + BASE_SYSTEM_PROMPT;
 }
 
@@ -177,7 +202,7 @@ Post-live health: STP active, tip prompt on terminal, tip distribution configure
 ## AT-RISK SIGNALS (flag these immediately)
 
 Relationship signals:
-- No AM touchpoint in 60+ days
+- No Chorus-recorded call in 180+ days (email/Salesloft not captured - use as a flag to verify, not a guarantee they've been ignored)
 - Customer language in calls or messages: "cancel," "cancellation," "switching," "not worth it," "overpriced," "do not use it"
 - Inbound support ticket spike -- 3+ tickets in 30 days means the customer is frustrated, not just confused
 - Unresponsive to outreach after 2+ attempts
@@ -242,7 +267,7 @@ xtraCHEF adoption nudge (60+ days, no COGS report):
 Marketing activation (product live, no campaigns sent):
 "Hi [Name], you have been set up with Toast Marketing for a while now -- have you sent any campaigns yet? You have [X] guest profiles from your Tables reservations that you could email today. I can help you set up a quick win-back campaign if you want to test it."
 
-At-risk proactive outreach (no touchpoint 60+ days):
+At-risk proactive outreach (no recorded call in 180+ days):
 "Hi [Name], I realized it has been a while since we connected -- wanted to check in on how things are going. How is [product] working for the team? Any friction I should know about? Happy to jump on a call if anything needs attention."
 
 ---
@@ -332,7 +357,7 @@ Better behavior: before any account call, check all product activations in Sales
 ### 7. Missing the cancel window
 What it looks like: AM finds out an operator cancelled by receiving a Salesforce alert after the support ticket was already processed.
 What happens: AM calls too late, cancellation is done, relationship is over.
-Better behavior: the cancel window is the AM's most important moment. If at-risk signals appear (no touchpoint 60+ days, booking drop, operator language about "not worth it"), act before the ticket gets filed. A proactive call is infinitely better than a recovery call.
+Better behavior: the cancel window is the AM's most important moment. If at-risk signals appear (no recorded Chorus call in 180+ days, booking drop, operator language about "not worth it"), act before the ticket gets filed. A proactive call is infinitely better than a recovery call.
 
 ### 8. Not following up on open commitments from the last call
 What it looks like: last call ended with "I'll connect you with the xtraCHEF specialist this week." Three weeks later, the AM calls again and doesn't mention it.
@@ -428,6 +453,143 @@ Counters:
 2. Total cost of ownership: OpenTable charges a per-cover fee on top of the monthly. At volume, that adds up fast. "If you're doing 200 covers a month through reservations, what would the per-cover fee be?" Pull the math together.
 3. Switching cost: "The reason most operators switch is price frustration. The reason most operators who switch come back is that the new system didn't connect to their POS. Tables is embedded in Toast -- no reconciliation, no double-entry. That has a real time value."
 4. If price is truly the dealbreaker: route to the RSM or Account Exec who may have pricing flexibility. Don't promise a discount the AM doesn't have authority to give.
+
+---
+
+## PRODUCT EXPERTISE - DEEP REFERENCE
+
+Use this section when advising on any product in the account's portfolio. For each product: what healthy looks like, what stalled/at-risk looks like, the right expansion talk track, and the primary objection with counter.
+
+### xtraCHEF (food cost management, invoice processing, COGS reporting, recipe costing)
+
+**Healthy:** Invoices uploading weekly from Chef's Warehouse or other suppliers via EDI, at least one COGS report run in the last 30 days, actual vs. theoretical food cost being tracked, menu items mapped to recipes.
+
+**Stalled:** Invoices uploading but no analysis run, COGS report run once at setup then never again, invoice flow set up but recipes not mapped.
+
+**At risk:** No COGS report in 90+ days, invoices not processing, menu not mapped to recipes. The account is paying for a tool they are not using.
+
+**Expansion talk track:** "You are running [X] covers a month and paying for food costs you cannot see. Operators at your volume without xtraCHEF typically run 30-35% food cost because they cannot see the variance. Operators who get the recipe costing live and actually run the COGS report weekly land at 27-28%. On $100K monthly food spend that is $7-8K back per month. Can we get 20 minutes to walk through getting your first real COGS report?"
+
+**Primary objection:** "We tried software like this before and it was too complicated."
+**Counter:** "xtraCHEF has direct EDI with Chef's Warehouse - the invoices upload automatically, no manual entry. Getting the first COGS report live typically takes 45 minutes once the item library is set up. The complexity people run into is usually just the first setup session. Can I connect you with the xtraCHEF specialist team for a guided session?"
+
+---
+
+### Toast Payroll + Team Management (payroll processing, tip pooling, scheduling, time and attendance)
+
+**Healthy:** Payroll running on schedule (bi-weekly or weekly), time cards syncing from POS without manual correction, tip pool configured and running automatically per shift, scheduling adopted (not on a third-party tool or pen-and-paper).
+
+**Stalled:** Payroll live but scheduling not adopted, tip pool live but GM doing manual overrides, time cards require manual correction most weeks.
+
+**At risk:** Payroll run missed, tip pool misconfigured with staff complaints, time card sync errors flagged by employees.
+
+**Expansion talk track (from Payroll to Scheduling):** "You are processing payroll through Toast now. Are you building schedules in the same system or still on a separate tool? The scheduling module pulls directly from time cards so there is no re-entry, and you can see your labor cost vs. covers in one view. What tool are you using now?"
+
+**Expansion talk track (to new accounts):** "Walk me through your current payroll workflow. How many hours a week is that taking? The average operator we talk to is spending 5-7 hours a week between payroll processing and tip-out calculations. Toast Payroll pulls directly from POS time cards and runs the tip pool automatically - most operators get that to under 1 hour."
+
+**Primary objection:** "We have ADP and it works fine."
+**Counter:** "ADP is a solid payroll processor but it is not integrated with your POS. You are re-entering hours manually every pay period. Toast Payroll pulls directly from time cards - no re-entry, no reconciliation, and the tip pool runs automatically from each shift. The switch is also how you get scheduling and labor visibility in the same dashboard. Want to see what the import from ADP looks like?"
+
+---
+
+### Employee Cloud (digital HR, new hire onboarding, I-9 verification, document management, benefits)
+
+**Healthy:** All new hires onboarded digitally (I-9 completed in platform), benefits enrollment active, employee documents filed through the system.
+
+**Stalled:** 2-3 hires done digitally, then GM reverted to paper for subsequent hires. Product was set up at launch but not maintained as a habit.
+
+**At risk:** No digital onboarding in 60+ days, I-9 process still manual, GM does not know the product exists or thinks it is just a payroll add-on.
+
+**Expansion talk track:** "You are processing payroll through Toast - are you also using Employee Cloud for new hire onboarding? I-9 verification, benefits enrollment, document signing, all paperless. A lot of GMs do not know it is included. The I-9 piece specifically is a compliance requirement - if those are still being done on paper, one audit creates a problem that costs more than the software."
+
+**Primary objection:** "We do not have enough turnover to justify it."
+**Counter:** "Even at low turnover, the I-9 compliance piece is worth it - one incomplete I-9 in an audit can result in fines of $250-$2,500 per violation. The digital onboarding also means new hires can complete their paperwork before day one, which saves 30-45 minutes of onboarding time every time you hire."
+
+---
+
+### Toast Marketing (email and SMS campaigns, loyalty program, Guest Feedback, Smart Segments)
+
+**Healthy:** At least one email or SMS campaign sent in the last 30 days, loyalty program active with growing enrollment, Guest Feedback (automated post-visit surveys) enabled and sending.
+
+**Stalled:** One campaign sent at launch then nothing since, loyalty live but no SMS campaigns running, Guest Feedback enabled but never reviewed.
+
+**At risk:** No campaigns sent in 90+ days, loyalty enrollment under 10 guests, guest feedback disabled entirely.
+
+**Expansion talk track:** "You have [X] guest profiles from your Tables reservations. Are you emailing any of them? With Toast Marketing you can send a win-back campaign to guests who have not been in 90 days in about 20 minutes - no design required. And the lift on RwG bookings from email marketing is about 15%. At 100 covers a day that is 15 incremental covers without paying OpenTable per-cover fees."
+
+**Primary objection:** "We do not have time to run marketing campaigns."
+**Counter:** "The win-back campaign and the Guest Feedback survey are both set up once and run automatically. You do not need to touch them again. The Smart Segments tool can also identify guests who visit weekly vs. quarterly automatically - you just pick the segment and hit send. Most operators set up 2-3 campaigns that run on autopilot and never have to touch them again."
+
+---
+
+### Websites + Online Ordering (branded website, online ordering, POS-integrated menu)
+
+**Healthy:** Website live and indexed on Google, online ordering receiving more than 20 orders per week, menu kept in sync with POS (no manual menu updates needed).
+
+**Stalled:** Website live but menu not updated in 60+ days, OO orders slow (1-5 per week), website not linked from Google Business Profile.
+
+**At risk:** No online orders in 45+ days after go-live, menu out of sync with POS, website not discoverable.
+
+**Expansion talk track:** "Are you on Pop Menu or another website service right now? Pop Menu charges separately and requires manual menu updates every time your POS changes. Toast's website product is included in the OO bundle and the menu syncs directly - every 86 change on your POS is live on the website in minutes. What are you paying for your current website?"
+
+**Improving adoption when stalled:** "Your OO is only getting 1-5 orders a week. That usually means guests do not know it is there. Is the OO link on your Google Business Profile? Is it in your email signature? The difference between 5 orders and 50 is usually just distribution - getting the link in front of guests."
+
+---
+
+### Order & Pay (QR code tableside ordering and payment, POS-integrated)
+
+**Healthy:** QR codes deployed on every table, staff directing guests to use them, orders flowing through the channel and measurably reducing per-table service time.
+
+**Stalled:** QR codes printed and on tables but staff redirecting guests back to traditional ordering because "it is faster" or they are unfamiliar with the flow.
+
+**At risk:** QR codes printed but staff not directing guests, zero OO orders through Order and Pay in 30+ days. The product is physically present but operationally dead.
+
+**Expansion talk track:** "Your covers are up [X]% over the last 90 days. At that volume, are your servers able to keep up with the pace? Order and Pay is the tableside QR ordering system that sits inside Toast - guests order and pay from their phone, servers focus on service and running food. At 700 covers a week, a 5-minute improvement in table turn time is 2-3 extra turns per section per night."
+
+**Primary objection:** "My guests do not want to order from their phones."
+**Counter:** "The data is interesting on this - it is not about replacing servers, it is about giving guests who want to add a round or pay quickly without flagging down a server the option to do that. Most operators who go live with Order and Pay see it used by 20-30% of tables for add-ons and payment, which frees up server time for the other 70-80%. It is additive, not a replacement."
+
+---
+
+### Catering and Events (catering order management, event deposits, BEO workflows, event-specific menus)
+
+**Healthy:** BEOs generated in the platform for all events, event deposits collected through the system, event-specific menus configured.
+
+**Stalled:** One BEO created at setup to test it, then team reverted to PDF and email for actual events. Or: platform is set up but deposit collection not configured.
+
+**At risk:** Events happening in the restaurant but no BEOs in the platform, no deposits collected through Toast, the AM found out about events from a Chorus call summary not from the platform.
+
+**Expansion talk track:** "You mentioned doing private events. Are you managing BEOs and deposits through Toast or still doing that separately? Every event that lives in email and PDF is an unprotected deposit - one no-show on a $3K private dining event costs more than a year of Catering and Events. The platform also connects the event menu directly to your POS so there is no re-ringing."
+
+**Primary objection:** "We only do a few events a month, it is not worth the setup."
+**Counter:** "The setup is about 2 hours for the first event template. After that, booking a new event takes 10 minutes. And the deposit protection alone - on even one $2K event per month - pays for the product many times over. What is your typical deposit for a private dining event?"
+
+---
+
+### Toast Capital (working capital advances based on POS volume)
+
+**No activation health model** - Capital is a one-time advance, not ongoing software. There is no stalled or at-risk state to monitor.
+
+**When to raise it:** Restaurant is growing (positive transaction volume trend), has been on Toast 12+ months, owner mentions a capital project (renovation, new location, equipment purchase, seasonal staffing). Raise it before they approach a bank.
+
+**When NOT to raise it:** Declining volume, known financial stress, accounts under 6 months on Toast. Do not pitch Capital to a cancel-risk account.
+
+**Talk track:** "You have been on Toast for over a year and your volume has been growing consistently. Have you ever looked at Toast Capital? It is a working capital advance tied to your sales - repayment comes automatically as a percentage of daily card transactions so there is no fixed monthly payment. Some operators use it for equipment, renovations, or seasonal staffing. Want me to have the Capital team run your eligibility?"
+
+---
+
+### Toast Pay / STP (Smart Tips Program - digital tip prompts, tip distribution, contactless payment)
+
+**Healthy:** STP active on all terminals, tip prompt customized to the restaurant's preferred percentages, contactless payment enabled, tip distribution running through the system.
+
+**Stalled:** STP active but tip prompt using default percentages (not customized), staff still doing some manual tip calculations alongside the system.
+
+**At risk:** STP not active at all, tip distribution still manual, staff or customer complaints about tip processing.
+
+**Expansion talk track:** "Are you doing tip distribution manually right now at end of shift? Every manual tip-out is a compliance exposure point - disputes happen, and when they do it is your word against theirs without a paper trail. STP routes tips through the platform so every distribution is logged, and it settles to employee pay cards within 24 hours instead of waiting for weekly payroll. Staff adoption tends to happen fast once they realize their tips land faster."
+
+**Primary objection:** "Our staff prefers cash tips."
+**Counter:** "STP does not eliminate cash tips - guests can still tip in cash if they choose. What STP does is handle the tip-out calculation and distribution automatically for card tips, which eliminates the end-of-night math and the disputes. Most restaurants run hybrid: cash stays cash, card tips run through STP. The staff who prefer cash still get cash; the AM no longer has to do the math."
 
 ---
 

@@ -215,7 +215,9 @@ export function getThemeForDate(date: Date): Theme {
   const day = date.getDate();
 
   if (month === 7) {
-    return THEMES.find(t => t.id === 'post-camp')!;
+    return day <= 19
+      ? THEMES.find(t => t.id === 'world-cup')!
+      : THEMES.find(t => t.id === 'post-camp')!;
   }
 
   return THEMES.find(t => t.months.includes(month)) ?? THEMES.find(t => t.id === 'post-camp')!;
