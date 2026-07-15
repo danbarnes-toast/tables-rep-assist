@@ -4,7 +4,8 @@ import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { RepContext, AccountContext } from '@/lib/system-prompt';
-import { THEMES, getThemeForDate, applyTheme, type Theme } from '@/lib/themes';
+import { TabShell } from '@/components/platform/TabShell';
+import type { NavTab } from '@/components/platform/MobileNav';
 import {
   OT_TIERS, TABLES_MONTHLY, RWG_BY_CATEGORY, TOAST_LOCAL_MONTHLY_AVG,
   EM_LIFT_PCT, ADS_CPA_LOW, ADS_CPA_HIGH, ADS_MONTHLY_SPEND_DEFAULT, OT_NETWORK_PCT,
@@ -143,112 +144,6 @@ function parseSuggestions(text: string): { display: string; suggestions: string[
   };
 }
 
-// ── Theme picker ───────────────────────────────────────────────────────────
-function ThemePicker({
-  activeTheme, isDark, onTheme, onToggleDark,
-}: {
-  activeTheme: Theme; isDark: boolean;
-  onTheme: (t: Theme) => void; onToggleDark: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {/* Dark/light toggle */}
-      <button
-        onClick={onToggleDark}
-        style={{
-          width: 32, height: 32, borderRadius: 8,
-          background: 'var(--bg-strip)', border: '1px solid var(--border)',
-          cursor: 'pointer', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background 0.15s',
-        }}
-        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      >
-        {isDark ? '☀️' : '🌙'}
-      </button>
-
-      {/* Theme picker */}
-      <div ref={ref} style={{ position: 'relative' }}>
-        <button
-          onClick={() => setOpen(o => !o)}
-          style={{
-            height: 32, padding: '0 10px', borderRadius: 8,
-            background: 'var(--bg-strip)', border: '1px solid var(--border)',
-            cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6,
-            color: 'var(--text-secondary)', transition: 'background 0.15s',
-          }}
-        >
-          <span>{activeTheme.emoji}</span>
-          <span style={{ fontSize: 11 }}>{activeTheme.name}</span>
-        </button>
-
-        {open && (
-          <div style={{
-            position: 'absolute', top: 'calc(100% + 6px)', right: 0,
-            background: 'var(--bg-card)', border: '1px solid var(--border)',
-            borderRadius: 14, padding: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-            zIndex: 100, width: 220,
-          }}>
-            <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', marginBottom: 8, fontFamily: 'monospace' }}>Theme</p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {THEMES.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => { onTheme(t); setOpen(false); }}
-                  title={t.name}
-                  style={{
-                    width: 28, height: 28, borderRadius: '50%',
-                    background: t.accent, border: activeTheme.id === t.id ? '3px solid var(--text-primary)' : '2px solid transparent',
-                    cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'transform 0.15s, border-color 0.15s',
-                    transform: activeTheme.id === t.id ? 'scale(1.15)' : 'scale(1)',
-                  }}
-                >
-                  {t.emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Exec badge (shown in header when theme has an exec) ────────────────────
-function ExecBadge({ exec }: { exec: NonNullable<Theme['exec']> }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div style={{ position: 'relative' }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
-      <img
-        src={exec.photo} alt={exec.name}
-        style={{
-          width: 26, height: 26, borderRadius: '50%',
-          border: '2px solid var(--accent)', objectFit: 'cover',
-          cursor: 'default', opacity: 0.9,
-        }}
-      />
-      {hover && (
-        <div className="exec-tooltip">
-          <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{exec.name}</p>
-          <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{exec.title}</p>
-          <p style={{ fontSize: 11, color: 'var(--accent)', fontStyle: 'italic' }}>&ldquo;{exec.caption}&rdquo;</p>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Streak tracking ────────────────────────────────────────────────────────
 function useStreak(): number {
@@ -403,81 +298,6 @@ function getDailyContent(date: Date) {
     quote: SALES_QUOTES[seed % SALES_QUOTES.length],
     spark: SPARKS[seed % SPARKS.length],
   };
-}
-
-// ── Identity gate ──────────────────────────────────────────────────────────
-function IdentityGate({ onConfirm, activeTheme }: { onConfirm: (email: string) => void; activeTheme: Theme }) {
-  const [email, setEmail] = useState('');
-  const daily = getDailyContent(new Date());
-
-  return (
-    <div style={{
-      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-      background: 'var(--bg-page)',
-      position: 'relative', overflow: 'hidden',
-    }}>
-      {/* Radial glow behind card */}
-      <div style={{
-        position: 'absolute', top: '30%', left: '50%', transform: 'translate(-50%, -50%)',
-        width: 480, height: 480, borderRadius: '50%',
-        background: `radial-gradient(circle, ${activeTheme.accentGlow} 0%, transparent 70%)`,
-        pointerEvents: 'none',
-      }} />
-
-      <div style={{
-        position: 'relative', width: '100%', maxWidth: 380,
-        background: 'var(--bg-card)', border: '1px solid var(--border)',
-        borderRadius: 20, padding: 32, boxShadow: '0 16px 48px rgba(0,0,0,0.12)',
-      }}>
-        {/* Day + greeting */}
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <p style={{ fontSize: 11, color: 'var(--accent)', fontFamily: 'monospace', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>
-            {daily.dayName}
-          </p>
-          <div style={{
-            width: 52, height: 52, borderRadius: '50%',
-            background: 'var(--accent-light)', border: '1px solid var(--accent-glow)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px',
-          }}>
-            <ToastFlame size={26} />
-          </div>
-          <p style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
-            {daily.greeting}
-          </p>
-          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 0 }}>
-            Enter your Toast email to continue
-          </p>
-        </div>
-
-        <form onSubmit={e => { e.preventDefault(); if (email.includes('@')) onConfirm(email.toLowerCase().trim()); }}>
-          <input
-            type="email" value={email} onChange={e => setEmail(e.target.value)}
-            placeholder="you@toasttab.com"
-            className="themed-input"
-            style={{ marginBottom: 12 }}
-            autoFocus
-          />
-          <button type="submit" disabled={!email.includes('@')} className="btn-primary" style={{ width: '100%' }}>
-            Continue
-          </button>
-        </form>
-
-        {/* Quote */}
-        <div style={{ marginTop: 20, padding: '12px 14px', background: 'var(--bg-strip)', borderRadius: 10, borderLeft: '2px solid var(--accent)' }}>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 4 }}>
-            "{daily.quote.quote}"
-          </p>
-          <p style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
-            {daily.spark}
-          </p>
-        </div>
-
-        <p style={{ textAlign: 'center', marginTop: 14, fontSize: 11, color: 'var(--text-tertiary)' }}>
-          {activeTheme.emoji} {activeTheme.name} edition
-        </p>
-      </div>
-    </div>
-  );
 }
 
 // ── Live Call / Listen tab ─────────────────────────────────────────────────
@@ -2200,6 +2020,54 @@ function WorkflowsTab({ repData }: { repData: RepData | null }) {
   );
 }
 
+// ── Tab icons ──────────────────────────────────────────────────────────────
+function HomeIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+function AskIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function PrepIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+      <line x1="9" y1="12" x2="15" y2="12" />
+      <line x1="9" y1="16" x2="13" y2="16" />
+    </svg>
+  );
+}
+
+function AccountsIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  );
+}
+
+function WorkflowsIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────────
 export default function Home() {
   const router = useRouter();
@@ -2207,8 +2075,7 @@ export default function Home() {
   const [repData, setRepData] = useState<RepData | null>(null);
   const [repDataLoaded, setRepDataLoaded] = useState(false);
   const [selectedAccountIdx, setSelectedAccountIdx] = useState<number | null>(null);
-  const [isDark, setIsDark] = useState(false);
-  const [activeTheme, setActiveTheme] = useState<Theme>(() => getThemeForDate(new Date()));
+  const [isDark, setIsDark] = useState(true);
   const [confetti, setConfetti] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const streak = useStreak();
@@ -2224,22 +2091,21 @@ export default function Home() {
 
   // Load persisted preferences + onboarding check
   useEffect(() => {
-    const dark = localStorage.getItem('rep_dark') === '1';
-    const themeId = localStorage.getItem('rep_theme');
-    setIsDark(dark);
-    if (themeId) {
-      const t = THEMES.find(t => t.id === themeId);
-      if (t) setActiveTheme(t);
-    }
+    const dark = localStorage.getItem('rep_dark');
+    if (dark !== null) setIsDark(dark === '1');
     if (!localStorage.getItem('rep_onboarding_done')) setShowOnboarding(true);
     // Remove stale language key - language is now session-only, never persisted
     try { localStorage.removeItem('rep_language'); } catch {}
   }, []);
 
-  // Apply theme + mode whenever either changes
+  // Apply dark/light to html element
   useEffect(() => {
-    applyTheme(activeTheme, isDark);
-  }, [activeTheme, isDark]);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
 
   useEffect(() => {
     if (!repEmail) return;
@@ -2253,13 +2119,7 @@ export default function Home() {
     setIsDark(d => { localStorage.setItem('rep_dark', d ? '0' : '1'); return !d; });
   }, []);
 
-  const setTheme = useCallback((t: Theme) => {
-    setActiveTheme(t);
-    localStorage.setItem('rep_theme', t.id);
-  }, []);
-
   const firstName = repData?.rep_name.split(' ')[0];
-
 
   const dismissOnboarding = useCallback(() => {
     localStorage.setItem('rep_onboarding_done', '1');
@@ -2270,143 +2130,108 @@ export default function Home() {
   if (!repEmail) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a' }}>
       <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid #FF4C00', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 
-  const TAB_LABELS: Record<Mode, string> = { home: 'Home', ask: 'Ask', listen: 'Live', train: 'Train', roi: 'ROI', prep: 'Prep', accounts: 'Accounts', proof: 'Proof', workflows: 'Workflows' };
-  const TAB_ICONS: Record<Mode, string> = { home: '⌂', ask: '💬', listen: '🎙', train: '🎯', roi: '📊', prep: '📋', accounts: '🏢', proof: '⭐', workflows: '⚡' };
-  const TAB_ORDER: Mode[] = ['home', 'ask', 'prep', 'accounts', 'workflows'];
+  // Header right: dark toggle + avatar
+  const headerRight = (
+    <>
+      {streak >= 2 && (
+        <div title={`${streak}-day streak`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,76,0,0.08)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 8, padding: '3px 8px' }}>
+          <span style={{ fontSize: 13 }}>{'🔥'}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace' }}>{streak}</span>
+        </div>
+      )}
+      <button
+        onClick={toggleDark}
+        style={{
+          width: 32, height: 32, borderRadius: 8,
+          background: 'var(--bg-strip)', border: '1px solid var(--border)',
+          cursor: 'pointer', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'background 0.15s',
+        }}
+        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {isDark ? '☀️' : '🌙'}
+      </button>
+      {(firstName || repEmail) && (
+        <button
+          title={`Signed in as ${repEmail ?? ''} - click to sign out`}
+          onClick={async () => { await fetch('/api/logout', { method: 'POST' }); router.push('/login'); }}
+          style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)', cursor: 'pointer', padding: 0 }}
+        >
+          {repData?.slack_photo
+            ? <img src={repData.slack_photo} alt={firstName ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{(firstName ?? repEmail ?? '?')[0].toUpperCase()}</span>
+          }
+        </button>
+      )}
+    </>
+  );
 
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-page)' }}>
-      <ConfettiBurst visible={confetti} onDone={() => setConfetti(false)} />
-      {showOnboarding && <OnboardingBanner onDismiss={dismissOnboarding} onGo={m => { setMode(m); dismissOnboarding(); }} />}
-      {/* Header */}
-      <header style={{
-        borderBottom: '1px solid var(--border)', padding: '10px 16px',
-        background: 'var(--bg-header)', flexShrink: 0,
-        boxShadow: '0 1px 0 var(--border)',
-      }}>
-        <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          {/* Left: wordmark */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: 'var(--accent-light)', border: '1px solid var(--accent-glow)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <ToastFlame size={15} />
-            </div>
-            <div>
-              <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
-                Account <span style={{ color: 'var(--accent)' }}>Manager</span>
-              </span>
-              <span className="mobile-hide" style={{ marginLeft: 6, fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 6, padding: '1px 6px', fontFamily: 'monospace' }}>Jul 2026</span>
-            </div>
-            {/* Active exec badge */}
-            {activeTheme.exec && <ExecBadge exec={activeTheme.exec} />}
-          </div>
-
-          {/* Center: tabs */}
-          <div className="tab-bar">
-            {(['home', 'ask', 'prep', 'accounts', 'workflows'] as Mode[]).map(m => (
-              <button key={m} onClick={() => setMode(m)} className={`tab-btn${mode === m ? ' active' : ''}`}>
-                {TAB_LABELS[m]}
-              </button>
-            ))}
-          </div>
-
-          {/* Right: streak + rep + theme controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            {streak >= 2 && (
-              <div className="mobile-hide" title={`${streak}-day streak`} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,76,0,0.08)', border: '1px solid rgba(255,76,0,0.2)', borderRadius: 8, padding: '3px 8px' }}>
-                <span style={{ fontSize: 13 }}>🔥</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', fontFamily: 'monospace' }}>{streak}</span>
-              </div>
-            )}
-            {(firstName || repEmail) && (
-              <button
-                title={`Signed in as ${repEmail ?? ''} - click to sign out`}
-                onClick={async () => { await fetch('/api/logout', { method: 'POST' }); router.push('/login'); }}
-                style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', border: '2px solid var(--border)', cursor: 'pointer', padding: 0 }}
-              >
-                {repData?.slack_photo
-                  ? <img src={repData.slack_photo} alt={firstName ?? ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  : <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-text)' }}>{(firstName ?? repEmail ?? '?')[0].toUpperCase()}</span>
-                }
-              </button>
-            )}
-            <ThemePicker activeTheme={activeTheme} isDark={isDark} onTheme={setTheme} onToggleDark={toggleDark} />
+  const tabs: (import('@/components/platform/MobileNav').NavTab & { content: React.ReactNode })[] = [
+    {
+      id: 'home',
+      label: 'Home',
+      icon: <HomeIcon />,
+      content: <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />,
+    },
+    {
+      id: 'ask',
+      label: 'Ask',
+      icon: <AskIcon />,
+      content: <ChatPane mode="ask" repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} />,
+    },
+    {
+      id: 'prep',
+      label: 'Prep',
+      icon: <PrepIcon />,
+      content: (
+        <div style={{ padding: '24px 16px' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            <PrepTab repData={repData} repDataLoaded={repDataLoaded} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
           </div>
         </div>
-      </header>
-
-      {/* Content */}
-      <div className="mobile-content-pad" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {mode === 'home' ? (
-          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto' }}>
-            <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />
-          </div>
-        ) : mode === 'listen' ? (
-          <ListenTab repData={repData} />
-        ) : mode === 'accounts' ? (
-          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              {repData ? <AccountsTab data={repData} /> : (
-                <div style={{ paddingTop: 48, textAlign: 'center' }}>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No data for <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-strip)', padding: '1px 6px', borderRadius: 4 }}>{repEmail}</code>.</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>Ask Dan to run <code style={{ fontFamily: 'monospace', fontSize: 10 }}>seed_rep_accounts.py</code></p>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : mode === 'prep' ? (
-          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto', padding: '24px 16px' }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              <PrepTab repData={repData} repDataLoaded={repDataLoaded} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} onBriefGenerated={() => setConfetti(true)} />
-            </div>
-          </div>
-        ) : mode === 'workflows' ? (
-          <div className="mobile-scroll-pad" style={{ flex: 1, overflowY: 'auto' }}>
-            <WorkflowsTab repData={repData} />
-          </div>
-        ) : mode === 'roi' ? (
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            <ROICalculator />
-          </div>
-        ) : mode === 'proof' ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ borderBottom: '1px solid var(--border)', padding: '8px 16px', background: 'var(--bg-strip)', flexShrink: 0 }}>
-              <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>Customer Proof</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Real restaurants using Toast Tables - by category</p>
-                </div>
-                <a href="https://www.magicpatterns.com/c/85kpuhe3owkyfvqsjfwmus" target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
-                  Open full screen ↗
-                </a>
+      ),
+    },
+    {
+      id: 'accounts',
+      label: 'Accounts',
+      icon: <AccountsIcon />,
+      content: (
+        <div style={{ padding: '24px 16px' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            {repData ? <AccountsTab data={repData} /> : (
+              <div style={{ paddingTop: 48, textAlign: 'center' }}>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No data for <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-strip)', padding: '1px 6px', borderRadius: 4 }}>{repEmail}</code>.</p>
+                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>Ask Dan to run <code style={{ fontFamily: 'monospace', fontSize: 10 }}>seed_rep_accounts.py</code></p>
               </div>
-            </div>
-            <iframe src="https://01df6993-d785-4918-bacc-6c42c622de8f-render.magicpatterns.app/" style={{ flex: 1, width: '100%', border: 'none' }} title="Rep Assist Proof Slides" allow="fullscreen" />
+            )}
           </div>
-        ) : (
-          <ChatPane mode={mode as 'ask' | 'train'} repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} />
-        )}
-      </div>
+        </div>
+      ),
+    },
+    {
+      id: 'workflows',
+      label: 'Workflows',
+      icon: <WorkflowsIcon />,
+      content: <WorkflowsTab repData={repData} />,
+    },
+  ];
 
-      {/* Bottom nav - mobile only */}
-      <nav className="bottom-nav">
-        {TAB_ORDER.map(m => (
-          <button key={m} onClick={() => setMode(m)} className={`bottom-nav-btn${mode === m ? ' active' : ''}`}>
-            <span className="bnav-icon">{TAB_ICONS[m]}</span>
-            {TAB_LABELS[m]}
-          </button>
-        ))}
-      </nav>
-      {/* 👀 */}
-      <img src="https://avatars.slack-edge.com/2021-08-24/2408527348998_5234371e14f5857d4195_512.jpg" alt="" aria-hidden="true" style={{ position: 'fixed', bottom: 8, right: 8, width: 28, height: 28, borderRadius: '50%', opacity: 0.03, pointerEvents: 'none', zIndex: 9999 }} />
-    </div>
+  return (
+    <>
+      <ConfettiBurst visible={confetti} onDone={() => setConfetti(false)} />
+      {showOnboarding && <OnboardingBanner onDismiss={dismissOnboarding} onGo={m => { setMode(m); dismissOnboarding(); }} />}
+      <TabShell
+        persona="am"
+        appName="Account Manager"
+        appNameAccent="Manager"
+        headerRight={headerRight}
+        tabs={tabs}
+        activeTab={mode}
+        onTabChange={m => setMode(m as Mode)}
+      />
+    </>
   );
 }
