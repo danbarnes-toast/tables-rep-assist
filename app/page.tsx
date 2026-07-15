@@ -14,14 +14,16 @@ import {
 type Mode = 'home' | 'ask' | 'train' | 'prep' | 'roi' | 'accounts' | 'proof' | 'listen';
 
 // ── Toast flame SVG ────────────────────────────────────────────────────────
-function ToastFlame({ size = 16, className = '' }: { size?: number; className?: string }) {
+function ToastFlame({ size = 16, className = '', accent }: { size?: number; className?: string; accent?: string }) {
+  const fill = accent ?? 'var(--accent, #FF4C00)';
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
-      <path
-        fillRule="evenodd" clipRule="evenodd"
-        d="M12 2C12 2 7 7.5 7 13a5 5 0 0010 0c0-2.5-1.5-4.5-3-6 0 2-1 3.5-2 4.5A3 3 0 019 13c0-3 3-11 3-11z"
-        fill="var(--accent)"
-      />
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path d="M18 50 Q18 42 26 42 L74 42 Q82 42 82 50 L82 80 Q82 86 76 86 L24 86 Q18 86 18 80 Z" fill={fill} opacity="0.22" />
+      <path d="M30 42 Q30 22 50 22 Q70 22 70 42" stroke={fill} strokeWidth="5" strokeLinecap="round" fill="none" opacity="0.65" />
+      <path d="M21 44 L79 44" stroke={fill} strokeWidth="3.5" strokeLinecap="round" opacity="0.5" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M50 30C50 30 62 44 62 55C62 62 58 68 52 71C53.5 67 52 62 48 60C48 60 51 54.5 46.5 47C46.5 47 45 56 39 61C35 57 35 52 35 52C35 52 30 58 33 66C28 63 26 57 26 52C26 38 38 32 50 30Z" fill={fill} />
+      <line x1="31" y1="62" x2="69" y2="62" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.15" />
+      <line x1="31" y1="73" x2="69" y2="73" stroke="white" strokeWidth="2" strokeLinecap="round" opacity="0.10" />
     </svg>
   );
 }
@@ -136,11 +138,18 @@ function daysSince(dateStr: string): number {
 
 function parseSuggestions(text: string): { display: string; suggestions: string[] } {
   const match = text.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
-  if (!match) return { display: text, suggestions: [] };
-  return {
-    display: text.replace(/<suggestions>[\s\S]*?<\/suggestions>/, '').trimEnd(),
-    suggestions: match[1].split('\n').map(s => s.trim()).filter(Boolean),
-  };
+  if (match) {
+    return {
+      display: text.replace(/<suggestions>[\s\S]*?<\/suggestions>/, '').trimEnd(),
+      suggestions: match[1].split('\n').map(s => s.trim()).filter(Boolean),
+    };
+  }
+  // Strip in-progress <suggestions> block during streaming (closing tag not yet arrived)
+  const partialIdx = text.indexOf('<suggestions>');
+  if (partialIdx !== -1) {
+    return { display: text.slice(0, partialIdx).trim(), suggestions: [] };
+  }
+  return { display: text, suggestions: [] };
 }
 
 // ── Theme picker ───────────────────────────────────────────────────────────
