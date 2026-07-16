@@ -667,7 +667,17 @@ interface AttachIntelData {
   products?: AttachProduct[];
 }
 
-function AttachIntelPanel({ repEmail }: { repEmail: string }) {
+// Maps attach-intel product keys to the product name used in rep-accounts.json
+const ATTACH_KEY_TO_PRODUCT: Record<string, string> = {
+  oo: 'Websites + Online Ordering',
+  xc: 'xtraCHEF',
+  mkt: 'Toast Marketing',
+};
+
+function AttachIntelPanel({ repEmail, onShowGapAccounts }: {
+  repEmail: string;
+  onShowGapAccounts: (productName: string) => void;
+}) {
   const [data, setData] = useState<AttachIntelData | null>(null);
   const [loading, setLoading] = useState(true);
   const hasFetched = useRef(false);
@@ -769,6 +779,15 @@ function AttachIntelPanel({ repEmail }: { repEmail: string }) {
                   best: {p.topDecilePct}%
                 </p>
               </div>
+              {/* CTA: only when below median and product maps to accounts */}
+              {hasPersonal && !aboveMedian && ATTACH_KEY_TO_PRODUCT[p.key] && (
+                <button
+                  onClick={() => onShowGapAccounts(ATTACH_KEY_TO_PRODUCT[p.key])}
+                  style={{ marginTop: 8, background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--accent)', cursor: 'pointer', fontSize: 10, fontWeight: 600, padding: '3px 8px', width: '100%', textAlign: 'left' }}
+                >
+                  See accounts without {p.name} &rarr;
+                </button>
+              )}
             </div>
           );
         })}
@@ -811,12 +830,13 @@ const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode
   },
 ];
 
-function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount }: {
+function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAccounts }: {
   repData: RepData | null;
   repEmail: string | null;
   streak: number;
   onNav: (mode: Mode) => void;
   onPrepAccount: (idx: number) => void;
+  onShowGapAccounts: (productName: string) => void;
 }) {
   const daily = getDailyContent(new Date());
   const firstName = repData?.rep_name.split(' ')[0] ?? '';
@@ -1148,7 +1168,7 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount }: {
       )}
 
       {/* Attach intel panel */}
-      {repEmail && <AttachIntelPanel repEmail={repEmail} />}
+      {repEmail && <AttachIntelPanel repEmail={repEmail} onShowGapAccounts={onShowGapAccounts} />}
 
       {/* Quick actions */}
       <div>
@@ -1569,7 +1589,14 @@ function ChorusCallsAccordion({ calls }: { calls: ChorusCall[] }) {
 }
 
 // ── Accounts tab ───────────────────────────────────────────────────────────
-function AccountsTab({ data }: { data: RepData }) {
+function AccountsTab({ data, productFilter, onClearFilter }: { data: RepData; productFilter?: string | null; onClearFilter?: () => void }) {
+  const filteredAccounts = productFilter
+    ? data.accounts.filter(a => {
+        const match = a.products?.find(p => p.product === productFilter);
+        return !match || match.status !== 'live_healthy';
+      })
+    : data.accounts;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div>
@@ -1578,9 +1605,19 @@ function AccountsTab({ data }: { data: RepData }) {
       </div>
 
       <div>
-        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>Your Accounts</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+            {productFilter ? `Accounts without ${productFilter}` : 'Your Accounts'}
+            {productFilter && <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> ({filteredAccounts.length})</span>}
+          </p>
+          {productFilter && onClearFilter && (
+            <button onClick={onClearFilter} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 10, padding: '2px 8px' }}>
+              Clear filter
+            </button>
+          )}
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {data.accounts.map(acct => {
+          {filteredAccounts.map(acct => {
             const days = acct.is_activated ? null : daysSince(acct.signed_date);
             const action = (() => {
               if (acct.is_activated || days === null) return null;
@@ -2560,6 +2597,7 @@ export default function Home() {
   const [selectedAccountIdx, setSelectedAccountIdx] = useState<number | null>(null);
   const [isDark, setIsDark] = useState(true);
   const [confetti, setConfetti] = useState(false);
+  const [accountsProductFilter, setAccountsProductFilter] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const streak = useStreak();
   const [repEmail, setRepEmail] = useState<string | null>(null);
@@ -2657,7 +2695,7 @@ export default function Home() {
       id: 'home',
       label: 'Home',
       icon: <HomeIcon />,
-      content: <HomeTab repData={repData} repEmail={repEmail} streak={streak} onNav={m => setMode(m)} onPrepAccount={idx => { setSelectedAccountIdx(idx); setMode('prep'); }} />,
+      content: <HomeTab repData={repData} repEmail={repEmail} streak={streak} onNav={m => setMode(m)} onPrepAccount={idx => { setSelectedAccountIdx(idx); setMode('prep'); }} onShowGapAccounts={productName => { setAccountsProductFilter(productName); setMode('accounts'); }} />,
     },
     {
       id: 'ask',
@@ -2684,7 +2722,7 @@ export default function Home() {
       content: (
         <div style={{ padding: '24px 16px' }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            {repData ? <AccountsTab data={repData} /> : (
+            {repData ? <AccountsTab data={repData} productFilter={accountsProductFilter} onClearFilter={() => setAccountsProductFilter(null)} /> : (
               <div style={{ paddingTop: 48, textAlign: 'center' }}>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No data for <code style={{ fontFamily: 'monospace', fontSize: 11, background: 'var(--bg-strip)', padding: '1px 6px', borderRadius: 4 }}>{repEmail}</code>.</p>
                 <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>Ask Dan to run <code style={{ fontFamily: 'monospace', fontSize: 10 }}>seed_rep_accounts.py</code></p>

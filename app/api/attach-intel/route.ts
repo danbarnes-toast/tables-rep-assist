@@ -5,6 +5,22 @@ import { execSync } from 'child_process';
 
 const ENABLED = process.env.ATTACH_INTEL_ENABLED !== 'false';
 
+// In-memory cache: key = "email:refMonth", TTL = 8 hours
+// At pilot scale (1-2 AMs) this prevents redundant Snowflake queries across
+// tab switches / reloads without any external infra.
+// Upgrade path: replace with Vercel KV (Redis) when rolling out to full AM org.
+const _cache = new Map<string, { value: ReturnType<typeof queryPersonalRates>; expiresAt: number }>();
+const CACHE_TTL_MS = 8 * 60 * 60 * 1000;
+
+function cachedQuery(email: string, refMonth: string) {
+  const key = `${email}:${refMonth}`;
+  const hit = _cache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  const result = queryPersonalRates(email, refMonth);
+  _cache.set(key, { value: result, expiresAt: Date.now() + CACHE_TTL_MS });
+  return result;
+}
+
 interface BenchmarkProduct {
   key: string;
   name: string;
@@ -140,7 +156,7 @@ export async function GET(req: NextRequest) {
   }
 
   const refMonth = benchmarks.ref_month;
-  const personal = queryPersonalRates(email, refMonth);
+  const personal = cachedQuery(email, refMonth);
 
   if (!personal) {
     // Return benchmarks only - AM not found in Snowflake (demo accounts)
