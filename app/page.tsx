@@ -118,7 +118,20 @@ interface Account {
   note?: string;
   products?: ProductHealth[];
   days_since_touchpoint?: number;
+  days_since_rep_contact?: number;
+  last_contact_date?: string;
   open_support_tickets?: number;
+  case_data?: {
+    case_count_90d: number;
+    open_cases: number;
+    escalated_cases: number;
+    days_since_last_case: number;
+    top_case_category: string;
+    case_subjects: string[];
+  };
+  flare_signals?: string[];
+  account_grade?: string;
+  account_profitability_bucket?: string;
   total_arr?: number;
   renewal_date?: string;
   account_health?: 'healthy' | 'at_risk' | 'cancel_risk';
@@ -143,7 +156,11 @@ function buildAccountPayload(acct: Account): AccountContext {
     monthly_trend: acct.monthly_trend,
     products: acct.products,
     days_since_touchpoint: acct.days_since_touchpoint,
-    open_support_tickets: acct.open_support_tickets,
+    days_since_rep_contact: acct.days_since_rep_contact,
+    open_support_tickets: acct.case_data?.open_cases ?? acct.open_support_tickets,
+    case_data: acct.case_data,
+    flare_signals: acct.flare_signals,
+    account_grade: acct.account_grade,
     total_arr: acct.total_arr,
     renewal_date: acct.renewal_date,
     account_health: acct.account_health,
@@ -629,6 +646,141 @@ function ListenTab({ repData }: { repData: RepData | null }) {
   );
 }
 
+// ── Attach Intel Panel ─────────────────────────────────────────────────────
+interface AttachProduct {
+  key: string;
+  name: string;
+  myPct: number | null;
+  myAttached: number | null;
+  totalAccts: number | null;
+  medianPct: number;
+  topDecilePct: number;
+  gapToMedian: number | null;
+  gapToTopDecile: number | null;
+}
+
+interface AttachIntelData {
+  enabled: boolean;
+  refMonth?: string;
+  amCount?: number;
+  totalAccts?: number | null;
+  products?: AttachProduct[];
+}
+
+function AttachIntelPanel({ repEmail }: { repEmail: string }) {
+  const [data, setData] = useState<AttachIntelData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const hasFetched = useRef(false);
+
+  useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    fetch(`/api/attach-intel?email=${encodeURIComponent(repEmail)}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [repEmail]);
+
+  const cardStyle: React.CSSProperties = {
+    background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px',
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.1em',
+    fontFamily: 'monospace', color: 'var(--accent)', fontWeight: 600, marginBottom: 8,
+  };
+
+  if (loading) {
+    return (
+      <div>
+        <p style={labelStyle}>Attach rates</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} style={{ ...cardStyle, height: 80, opacity: 0.4, background: 'var(--border)', borderRadius: 12 }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!data?.enabled || !data?.products) return null;
+
+  const refLabel = data.refMonth
+    ? new Date(data.refMonth + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : '';
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <p style={{ ...labelStyle, marginBottom: 0 }}>Your attach rates vs. peers</p>
+        {refLabel && <p style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>{refLabel}</p>}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {data.products.map(p => {
+          const hasPersonal = p.myPct !== null;
+          const aboveMedian = hasPersonal && p.gapToMedian !== null && p.gapToMedian >= 0;
+          const nearTopDecile = hasPersonal && p.myPct !== null && p.myPct >= p.topDecilePct * 0.9;
+          const bigGap = hasPersonal && p.gapToMedian !== null && p.gapToMedian < -10;
+
+          const pctColor = nearTopDecile ? '#10b981' : aboveMedian ? '#f59e0b' : bigGap ? '#ef4444' : '#f59e0b';
+          const barFill = hasPersonal && p.myPct !== null ? Math.min(p.myPct / 100, 1) : 0;
+          const medianFill = Math.min(p.medianPct / 100, 1);
+          const p90Fill = Math.min(p.topDecilePct / 100, 1);
+
+          return (
+            <div key={p.key} style={{ ...cardStyle }}>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4, fontWeight: 500 }}>{p.name}</p>
+              {hasPersonal ? (
+                <>
+                  <p style={{ fontSize: 22, fontWeight: 700, color: pctColor, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                    {p.myPct}%
+                  </p>
+                  <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    {p.myAttached}/{p.totalAccts} accounts
+                  </p>
+                </>
+              ) : (
+                <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2, lineHeight: 1.4 }}>
+                  Your data syncs<br />when your book loads
+                </p>
+              )}
+              {/* Progress bar */}
+              <div style={{ position: 'relative', height: 4, background: 'var(--border)', borderRadius: 2, marginTop: 8 }}>
+                {/* p90 marker */}
+                <div style={{ position: 'absolute', left: `${p90Fill * 100}%`, top: -2, width: 2, height: 8, background: 'rgba(100,116,139,0.5)', borderRadius: 1 }} />
+                {/* median marker */}
+                <div style={{ position: 'absolute', left: `${medianFill * 100}%`, top: -1, width: 2, height: 6, background: 'rgba(100,116,139,0.8)', borderRadius: 1 }} />
+                {/* fill */}
+                {hasPersonal && (
+                  <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${barFill * 100}%`, background: pctColor, borderRadius: 2, opacity: 0.8 }} />
+                )}
+              </div>
+              {/* Gap label */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
+                {hasPersonal && p.gapToMedian !== null ? (
+                  <p style={{ fontSize: 9, color: aboveMedian ? '#10b981' : '#f59e0b', fontFamily: 'monospace' }}>
+                    {p.gapToMedian >= 0 ? '+' : ''}{p.gapToMedian}pp vs typical AM
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+                    typical AM: {p.medianPct}%
+                  </p>
+                )}
+                <p style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
+                  best: {p.topDecilePct}%
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 6 }}>
+        <p style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Comparing {data.amCount} AMs with 10+ Tables accounts</p>
+        <p style={{ fontSize: 10, color: 'var(--text-tertiary)', opacity: 0.7 }}>No peer names shared</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Home tab ───────────────────────────────────────────────────────────────
 interface ActionItem { id: string; text: string; done: boolean; }
 
@@ -659,10 +811,12 @@ const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode
   },
 ];
 
-function HomeTab({ repData, streak, onNav }: {
+function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount }: {
   repData: RepData | null;
+  repEmail: string | null;
   streak: number;
   onNav: (mode: Mode) => void;
+  onPrepAccount: (idx: number) => void;
 }) {
   const daily = getDailyContent(new Date());
   const firstName = repData?.rep_name.split(' ')[0] ?? '';
@@ -735,18 +889,91 @@ function HomeTab({ repData, streak, onNav }: {
 
   const activated = repData?.accounts.filter(a => a.is_activated).length ?? 0;
   const total = repData?.accounts.length ?? 0;
-  // Accounts with no recorded Chorus call in 180+ days (Chorus only - email/Salesloft not captured)
-  const coldAccounts = repData?.accounts.filter(a => (a.days_since_touchpoint ?? 999) > 180).length ?? 0;
-  // Expansion signal: activated accounts with fewer than 30 bookings in 90d (underperforming)
+  // Cold: use best available signal (TASK_ACTIVITY primary, Chorus fallback)
+  const coldAccounts = repData?.accounts.filter(a => {
+    const dstSf = a.days_since_rep_contact ?? 9999;
+    const dstChorus = a.days_since_touchpoint ?? 9999;
+    return Math.min(dstSf, dstChorus) > 180;
+  }).length ?? 0;
   const expansionOpps = repData?.accounts.filter(a => a.is_activated && a.bookings_90d < 30).length ?? 0;
-  // Open support tickets across all accounts
-  const totalOpenTickets = repData?.accounts.reduce((s, a) => s + (a.open_support_tickets ?? 0), 0) ?? 0;
-  const ticketAccounts = repData?.accounts.filter(a => (a.open_support_tickets ?? 0) > 0).length ?? 0;
+  // Real open cases from Snowflake (case_data.open_cases), fallback to open_support_tickets
+  const totalOpenTickets = repData?.accounts.reduce((s, a) => {
+    const real = a.case_data?.open_cases;
+    return s + (real !== undefined ? real : (a.open_support_tickets ?? 0));
+  }, 0) ?? 0;
+  const ticketAccounts = repData?.accounts.filter(a => {
+    const real = a.case_data?.open_cases;
+    return (real !== undefined ? real : (a.open_support_tickets ?? 0)) > 0;
+  }).length ?? 0;
   // Average ARR across book
   const avgArr = repData && repData.accounts.length > 0
     ? Math.round(repData.accounts.reduce((s, a) => s + (a.total_arr ?? 0), 0) / repData.accounts.length)
     : 0;
   const recentBrief = repData?.accounts.find(a => a.chorus_calls && a.chorus_calls.length > 0);
+
+  // Cx Ranker v2: score each account by urgency, surface top 5
+  // Uses real support case data, TASK_ACTIVITY contact dates, and Flare signals
+  type RankedAccount = Account & { _score: number; _reasons: string[]; _action: string };
+  const rankedAccounts: RankedAccount[] = (repData?.accounts ?? []).map(a => {
+    let score = 0;
+    const reasons: string[] = [];
+    // Health
+    if (a.account_health === 'cancel_risk') { score += 40; reasons.push('cancel risk'); }
+    else if (a.account_health === 'at_risk') { score += 20; reasons.push('at risk'); }
+    // Cold contact: use best available signal (TASK_ACTIVITY primary, Chorus fallback)
+    const dstSf = a.days_since_rep_contact ?? 9999;
+    const dstChorus = a.days_since_touchpoint ?? 9999;
+    const dst = Math.min(dstSf, dstChorus);
+    if (dst >= 999) { score += 25; reasons.push('no contact on record'); }
+    else if (dst > 180) { score += 20; reasons.push(`${dst}d no contact`); }
+    else if (dst > 90) { score += 10; reasons.push(`${dst}d no contact`); }
+    // Real support cases
+    const cd = a.case_data;
+    if (cd) {
+      if (cd.escalated_cases > 0) { score += 30; reasons.push(`${cd.escalated_cases} escalated case${cd.escalated_cases > 1 ? 's' : ''}`); }
+      else if (cd.open_cases > 0) { score += Math.min(cd.open_cases * 12, 24); reasons.push(`${cd.open_cases} open case${cd.open_cases > 1 ? 's' : ''}`); }
+    }
+    // Flare signals
+    const flare = a.flare_signals ?? [];
+    if (flare.includes('trajectory_decline')) { score += 20; reasons.push('booking decline'); }
+    if (flare.includes('care_case')) { score += 15; reasons.push('care + no contact'); }
+    if (flare.includes('activation_gap')) { score += 15; reasons.push('activation gap'); }
+    // ARR weighting
+    const arr = a.total_arr ?? 0;
+    if (arr > 10000) score += 10;
+    else if (arr > 5000) score += 5;
+    // Account grade
+    const grade = (a.account_grade ?? '').toUpperCase();
+    if (grade === 'A' || grade === 'B') score += 10;
+    // Underperforming live
+    if (a.is_activated && a.bookings_90d < 20) { score += 8; reasons.push('low bookings'); }
+
+    // Derive one specific action based on highest-priority signal
+    let action = '';
+    const atRiskProducts = (a.products ?? []).filter(p => ['live_at_risk', 'live_stalled', 'purchased_not_activated'].includes(p.status));
+    if (cd && cd.escalated_cases > 0) {
+      action = `Escalated case open - call before it becomes a cancel decision`;
+    } else if (a.account_health === 'cancel_risk' && dst > 90) {
+      action = `No contact in ${dst >= 999 ? '180+' : dst}d - reach out this week, cancel window is open`;
+    } else if (a.account_health === 'cancel_risk') {
+      action = `Cancel risk - review last call notes and identify the one thing holding them`;
+    } else if (flare.includes('trajectory_decline')) {
+      action = `Booking decline - ask: "Your volume dropped ${Math.round((1 - (a.bookings_90d / Math.max(a.bookings_90d * 1.3, 1))) * 100)}% - is that intentional or a config issue?"`;
+    } else if (cd && cd.open_cases > 0) {
+      action = `${cd.open_cases} open ticket${cd.open_cases > 1 ? 's' : ''} - check status before they escalate`;
+    } else if (flare.includes('activation_gap')) {
+      action = `Not yet activated - confirm schedule is live and floor plan is complete`;
+    } else if (atRiskProducts.length > 0) {
+      const prod = atRiskProducts[0].product;
+      action = `${prod} stalled - ask: "What would it take to get value from ${prod} this quarter?"`;
+    } else if (dst > 180) {
+      action = `No recorded call in ${dst >= 999 ? '180+' : dst}d - schedule a check-in`;
+    } else if (a.is_activated && a.bookings_90d < 20) {
+      action = `Low bookings (${a.bookings_90d} in 90d) - confirm booking page is public and RwG is live`;
+    }
+
+    return { ...a, _score: score, _reasons: reasons.slice(0, 2), _action: action };
+  }).sort((a, b) => b._score - a._score).slice(0, 5);
 
   const labelStyle: React.CSSProperties = {
     fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.1em',
@@ -840,6 +1067,53 @@ function HomeTab({ repData, streak, onNav }: {
         </div>
       )}
 
+      {/* Cx Ranker */}
+      {repData && rankedAccounts.length > 0 && (
+        <div>
+          <p style={labelStyle}>Work this week</p>
+          <div style={{ ...cardStyle, display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {rankedAccounts.map((acct, idx) => {
+              const acctIdx = repData?.accounts.findIndex(a => a.name === acct.name) ?? -1;
+              return (
+              <button key={acct.name} onClick={() => { if (acctIdx >= 0) onPrepAccount(acctIdx); }} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
+                borderBottom: idx < rankedAccounts.length - 1 ? '1px solid var(--border)' : 'none',
+                background: 'none', border: 'none', borderRadius: 0, cursor: 'pointer', textAlign: 'left', width: '100%',
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-tertiary)', width: 14, flexShrink: 0 }}>{idx + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acct.name}</p>
+                  {acct._action && (
+                    <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, lineHeight: 1.4 }}>{acct._action}</p>
+                  )}
+                  <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    {acct.city}, {acct.state}{acct.total_arr ? ` · $${(acct.total_arr / 1000).toFixed(1)}k ARR` : ''}
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {acct._reasons.map(r => {
+                    const isCancelRisk = r === 'cancel risk';
+                    const isAtRisk = r === 'at risk';
+                    const isEscalated = r.includes('escalated');
+                    const isCase = r.includes('case') && !isEscalated;
+                    const isFlare = r === 'booking decline' || r === 'care + no contact' || r === 'activation gap';
+                    const color = isCancelRisk ? '#dc2626' : isAtRisk ? '#d97706' : isEscalated ? '#dc2626' : isCase ? '#a78bfa' : isFlare ? '#f59e0b' : '#64748b';
+                    const bg = isCancelRisk ? 'rgba(220,38,38,0.08)' : isAtRisk ? 'rgba(245,158,11,0.08)' : isEscalated ? 'rgba(220,38,38,0.08)' : isCase ? 'rgba(167,139,250,0.08)' : isFlare ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)';
+                    const border = isCancelRisk ? 'rgba(220,38,38,0.2)' : isAtRisk ? 'rgba(245,158,11,0.2)' : isEscalated ? 'rgba(220,38,38,0.2)' : isCase ? 'rgba(167,139,250,0.2)' : isFlare ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)';
+                    return (
+                      <span key={r} style={{ fontSize: 9, fontWeight: 600, fontFamily: 'monospace', color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap' }}>
+                        {r.toUpperCase()}
+                      </span>
+                    );
+                  })}
+                </div>
+              </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Book at a glance */}
       {repData && (
         <div>
@@ -872,6 +1146,9 @@ function HomeTab({ repData, streak, onNav }: {
           </div>
         </div>
       )}
+
+      {/* Attach intel panel */}
+      {repEmail && <AttachIntelPanel repEmail={repEmail} />}
 
       {/* Quick actions */}
       <div>
@@ -977,6 +1254,101 @@ interface PrepBrief {
   one_close: string; confidence: 'high' | 'medium' | 'low'; confidence_reason: string;
 }
 
+function PrepBriefView({ brief, selected, repData, onRefresh, confColor, confBg, statusIcon }: {
+  brief: PrepBrief; selected: Account; repData: RepData; onRefresh: () => void;
+  confColor: Record<string, string>; confBg: Record<string, string>;
+  statusIcon: Record<string, { icon: string; color: string }>;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{repData.rep_name.split(' ')[0]}&apos;s brief: {selected.name}</p>
+          <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{selected.city}, {selected.state} · {selected.chorus_calls?.length ?? 0} calls · {selected.activation_status}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10, background: confBg[brief.confidence], color: confColor[brief.confidence], border: `1px solid ${confColor[brief.confidence]}30` }}>
+            {brief.confidence}
+          </span>
+          <button onClick={onRefresh}
+            style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 8, padding: '3px 10px', cursor: 'pointer' }}>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="glow-card" style={{ padding: '16px 18px' }}>
+        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--accent)', fontFamily: 'monospace', marginBottom: 8 }}>Situation</p>
+        <p style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.65 }}>{brief.situation}</p>
+        {brief.confidence_reason && <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8, fontStyle: 'italic' }}>{brief.confidence_reason}</p>}
+      </div>
+
+      <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 16, padding: '16px 18px' }}>
+        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#3b82f6', fontFamily: 'monospace', marginBottom: 8 }}>Open with this</p>
+        <p style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.65 }}>&ldquo;{brief.suggested_opening}&rdquo;</p>
+      </div>
+
+      {brief.discussed.length > 0 && (
+        <div className="card">
+          <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>What&apos;s been discussed</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {brief.discussed.map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--text-primary)' }}>
+                <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 2 }}>·</span>
+                <span style={{ lineHeight: 1.6 }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {brief.open_commitments.length > 0 && (
+        <div className="card">
+          <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>Open commitments</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {brief.open_commitments.map((c, i) => {
+              const st = statusIcon[c.status];
+              return (
+                <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ color: st.color, fontWeight: 700, flexShrink: 0, fontSize: 13, marginTop: 1 }}>{st.icon}</span>
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginRight: 6 }}>{c.owner}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6 }}>{c.item}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {brief.predicted_objections.length > 0 && (
+        <div className="card">
+          <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>Likely objections</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {brief.predicted_objections.map((obj, i) => (
+              <div key={i}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, background: 'rgba(220,38,38,0.08)', color: '#dc2626', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, padding: '2px 7px', fontWeight: 600, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>them</span>
+                  <p style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.6 }}>&ldquo;{obj.objection}&rdquo;</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <span style={{ fontSize: 10, background: 'rgba(16,185,129,0.08)', color: '#059669', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 6, padding: '2px 7px', fontWeight: 600, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>you</span>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{obj.counter}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px' }}>
+        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 8 }}>One thing to close on</p>
+        <p style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600, lineHeight: 1.65 }}>{brief.one_close}</p>
+      </div>
+    </div>
+  );
+}
 function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccountIdx, onBriefGenerated }: {
   repData: RepData | null; repDataLoaded: boolean; selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void; onBriefGenerated?: () => void;
 }) {
@@ -985,6 +1357,14 @@ function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccoun
   const [error, setError] = useState<string | null>(null);
   const [lastIdx, setLastIdx] = useState<number | null>(null);
   const selected = selectedAccountIdx !== null ? (repData?.accounts[selectedAccountIdx] ?? null) : null;
+
+  // Auto-generate when arriving from Home with a pre-selected account
+  useEffect(() => {
+    if (selectedAccountIdx !== null && selectedAccountIdx !== lastIdx && repData && !loading) {
+      generate(selectedAccountIdx);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountIdx, repData]);
 
   const generate = async (idx: number) => {
     if (!repData) return;
@@ -1028,6 +1408,60 @@ function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccoun
       <p style={{ fontSize: 12 }}>Ask your manager to add your pipeline, or use Ask mode to prep for a call manually.</p>
     </div>
   );
+
+  if (selectedAccountIdx !== null) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={() => { setSelectedAccountIdx(null); setBrief(null); setError(null); setLastIdx(null); }}
+            style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '4px 10px' }}>
+            Back to accounts
+          </button>
+          {selected && <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{selected.name} · {selected.city}, {selected.state}</p>}
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+          {repData.accounts.map((acct, i) => (
+            <button key={acct.name + i} onClick={() => { setSelectedAccountIdx(i); if (lastIdx !== i) generate(i); }}
+              style={{
+                flexShrink: 0, fontSize: 11, padding: '4px 10px', borderRadius: 8,
+                background: selectedAccountIdx === i ? 'var(--accent-light)' : 'var(--bg-card)',
+                border: `1px solid ${selectedAccountIdx === i ? 'var(--accent-glow)' : 'var(--border)'}`,
+                color: selectedAccountIdx === i ? 'var(--accent)' : 'var(--text-secondary)',
+                cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+              {acct.name}
+            </button>
+          ))}
+        </div>
+
+        {loading && selected && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="glow-card" style={{ padding: '14px 18px' }}>
+              <p style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, marginBottom: 4 }}>Generating brief for {selected.name}...</p>
+              <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Synthesizing {selected.chorus_calls?.length ?? 0} calls + deal context</p>
+            </div>
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="card" style={{ gap: 8, display: 'flex', flexDirection: 'column' }}>
+                <div className="skeleton" style={{ height: 10, width: 80 }} />
+                <div className="skeleton" style={{ height: 10, width: '100%' }} />
+                <div className="skeleton" style={{ height: 10, width: '70%' }} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#dc2626' }}>
+            {error}
+            <button onClick={() => selectedAccountIdx !== null && generate(selectedAccountIdx)} style={{ marginLeft: 12, fontSize: 11, color: '#dc2626', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>Retry</button>
+          </div>
+        )}
+
+        {brief && selected && !loading && <PrepBriefView brief={brief} selected={selected} repData={repData} onRefresh={() => generate(selectedAccountIdx!)} confColor={confColor} confBg={confBg} statusIcon={statusIcon} />}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1082,96 +1516,6 @@ function PrepTab({ repData, repDataLoaded, selectedAccountIdx, setSelectedAccoun
         <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#dc2626' }}>
           {error}
           <button onClick={() => selectedAccountIdx !== null && generate(selectedAccountIdx)} style={{ marginLeft: 12, fontSize: 11, color: '#dc2626', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer' }}>Retry</button>
-        </div>
-      )}
-
-      {brief && selected && !loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <p style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>{repData.rep_name.split(' ')[0]}&apos;s brief: {selected.name}</p>
-              <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{selected.city}, {selected.state} · {selected.chorus_calls?.length ?? 0} calls · {selected.activation_status}</p>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10, background: confBg[brief.confidence], color: confColor[brief.confidence], border: `1px solid ${confColor[brief.confidence]}30` }}>
-                {brief.confidence}
-              </span>
-              <button onClick={() => selectedAccountIdx !== null && generate(selectedAccountIdx)}
-                style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 8, padding: '3px 10px', cursor: 'pointer' }}>
-                Refresh
-              </button>
-            </div>
-          </div>
-
-          <div className="glow-card" style={{ padding: '16px 18px' }}>
-            <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--accent)', fontFamily: 'monospace', marginBottom: 8 }}>Situation</p>
-            <p style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.65 }}>{brief.situation}</p>
-            {brief.confidence_reason && <p style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 8, fontStyle: 'italic' }}>{brief.confidence_reason}</p>}
-          </div>
-
-          <div style={{ background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 16, padding: '16px 18px' }}>
-            <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#3b82f6', fontFamily: 'monospace', marginBottom: 8 }}>Open with this</p>
-            <p style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.65 }}>&ldquo;{brief.suggested_opening}&rdquo;</p>
-          </div>
-
-          {brief.discussed.length > 0 && (
-            <div className="card">
-              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>What&apos;s been discussed</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {brief.discussed.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--text-primary)' }}>
-                    <span style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 2 }}>·</span>
-                    <span style={{ lineHeight: 1.6 }}>{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {brief.open_commitments.length > 0 && (
-            <div className="card">
-              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>Open commitments</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {brief.open_commitments.map((c, i) => {
-                  const st = statusIcon[c.status];
-                  return (
-                    <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <span style={{ color: st.color, fontWeight: 700, flexShrink: 0, fontSize: 13, marginTop: 1 }}>{st.icon}</span>
-                      <div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginRight: 6 }}>{c.owner}</span>
-                        <span style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6 }}>{c.item}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {brief.predicted_objections.length > 0 && (
-            <div className="card">
-              <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 12 }}>Likely objections</p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {brief.predicted_objections.map((obj, i) => (
-                  <div key={i}>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: 10, background: 'rgba(220,38,38,0.08)', color: '#dc2626', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 6, padding: '2px 7px', fontWeight: 600, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>them</span>
-                      <p style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.6 }}>&ldquo;{obj.objection}&rdquo;</p>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <span style={{ fontSize: 10, background: 'rgba(16,185,129,0.08)', color: '#059669', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 6, padding: '2px 7px', fontWeight: 600, flexShrink: 0, alignSelf: 'flex-start', marginTop: 2 }}>you</span>
-                      <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{obj.counter}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div style={{ background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px' }}>
-            <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace', marginBottom: 8 }}>One thing to close on</p>
-            <p style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600, lineHeight: 1.65 }}>{brief.one_close}</p>
-          </div>
         </div>
       )}
 
@@ -2313,13 +2657,13 @@ export default function Home() {
       id: 'home',
       label: 'Home',
       icon: <HomeIcon />,
-      content: <HomeTab repData={repData} streak={streak} onNav={m => setMode(m)} />,
+      content: <HomeTab repData={repData} repEmail={repEmail} streak={streak} onNav={m => setMode(m)} onPrepAccount={idx => { setSelectedAccountIdx(idx); setMode('prep'); }} />,
     },
     {
       id: 'ask',
       label: 'Ask',
       icon: <AskIcon />,
-      content: <ChatPane mode="ask" repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} />,
+      content: <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}><ChatPane mode="ask" repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} /></div>,
     },
     {
       id: 'prep',
@@ -2354,7 +2698,7 @@ export default function Home() {
       id: 'workflows',
       label: 'Workflows',
       icon: <WorkflowsIcon />,
-      content: <WorkflowsTab repData={repData} />,
+      content: <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}><WorkflowsTab repData={repData} /></div>,
     },
     {
       id: 'roi',
@@ -2374,7 +2718,7 @@ export default function Home() {
           <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
         </svg>
       ),
-      content: <ListenTab repData={repData} />,
+      content: <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}><ListenTab repData={repData} /></div>,
     },
   ];
 
