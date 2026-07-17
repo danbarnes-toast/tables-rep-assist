@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { execSync } from 'child_process';
+import repAccountsJson from '../../../data/rep-accounts.json';
 
 const LIVE_STATUSES = new Set(['live_healthy', 'live_stalled', 'live_at_risk']);
 
@@ -54,16 +55,15 @@ async function loadBenchmarks(): Promise<Benchmarks> {
   return JSON.parse(raw);
 }
 
-// Read attach rates from pre-computed rep-accounts.json (no Snowflake needed at runtime).
-// Returns null if the rep isn't in the file.
-async function ratesFromJson(email: string): Promise<{
+// Read attach rates from bundled rep-accounts.json (static import - no fs needed at runtime).
+// Returns null if the rep is not in the file.
+function ratesFromJson(email: string): {
   oo: number; xc: number; mkt: number; loyalty: number;
   ooAttached: number; xcAttached: number; mktAttached: number; loyaltyAttached: number;
   totalAccts: number;
-} | null> {
+} | null {
   try {
-    const raw = await readFile(join(process.cwd(), 'data', 'rep-accounts.json'), 'utf-8');
-    const data = JSON.parse(raw) as Record<string, { accounts?: Array<{ products?: Array<{ product: string; status: string }> }> }>;
+    const data = repAccountsJson as Record<string, { accounts?: Array<{ products?: Array<{ product: string; status: string }> }> }>;
     const repKey = Object.keys(data).find(k => k.toLowerCase() === email.toLowerCase());
     if (!repKey) return null;
     const accounts = data[repKey].accounts ?? [];
@@ -197,7 +197,7 @@ export async function GET(req: NextRequest) {
   const refMonth = benchmarks.ref_month;
   // Try pre-computed data first (works on Vercel without Snowflake connector).
   // Fall back to live Snowflake query only when the rep isn't in the JSON.
-  const personalFromJson = await ratesFromJson(email);
+  const personalFromJson = ratesFromJson(email);
   const personal = personalFromJson ?? cachedQuery(email, refMonth);
 
   if (!personal) {

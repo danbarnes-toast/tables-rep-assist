@@ -15,9 +15,24 @@ Output:
   Also writes directly to the file if --write flag is passed.
 """
 
-import sys, os, json, argparse
+import sys, os, json, argparse, math
 from pathlib import Path
 from datetime import date
+
+
+def _safe_json(obj):
+    """Recursively replace NaN/Inf with None so output is valid JSON."""
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    if isinstance(obj, dict):
+        return {k: _safe_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_safe_json(v) for v in obj]
+    return obj
+
+
+def safe_dumps(data, **kwargs):
+    return json.dumps(_safe_json(data), **kwargs)
 
 # Allow running from tables-pm-workspace or tables-rep-assist
 PM_WORKSPACE = Path(__file__).parent.parent.parent / "tables-pm-workspace"
@@ -430,8 +445,8 @@ def seed_rep(email: str, write: bool = False):
     if write:
         data = json.loads(REP_ACCOUNTS_PATH.read_text())
         data[email] = payload
-        REP_ACCOUNTS_PATH.write_text(json.dumps(data, indent=2))
-        REP_ACCOUNTS_PUBLIC_PATH.write_text(json.dumps(data, indent=2))
+        REP_ACCOUNTS_PATH.write_text(safe_dumps(data, indent=2))
+        REP_ACCOUNTS_PUBLIC_PATH.write_text(safe_dumps(data, indent=2))
         print(f"Written to {REP_ACCOUNTS_PATH}", file=sys.stderr)
     else:
         print(json.dumps({email: payload}, indent=2))
@@ -522,8 +537,8 @@ def refresh_rep(email: str):
         print(f"  Refreshed {acct['name']} ({updated}/{len(rep['accounts'])})", file=sys.stderr)
 
     rep["seeded_at"] = str(date.today())
-    REP_ACCOUNTS_PATH.write_text(json.dumps(data, indent=2))
-    REP_ACCOUNTS_PUBLIC_PATH.write_text(json.dumps(data, indent=2))
+    REP_ACCOUNTS_PATH.write_text(safe_dumps(data, indent=2))
+    REP_ACCOUNTS_PUBLIC_PATH.write_text(safe_dumps(data, indent=2))
     print(f"Refresh complete: {updated} accounts updated.", file=sys.stderr)
 
 
