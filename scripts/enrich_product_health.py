@@ -379,6 +379,39 @@ def compute_health(acct: dict, products: list, days_touchpoint: int) -> str:
     return "healthy"
 
 
+def compute_flare_signals(acct: dict) -> list:
+    """Compute Flare-style rule-based churn signals from available account data."""
+    signals = []
+    trend = acct.get("monthly_trend", [])
+    case_data = acct.get("case_data", {})
+    days_chorus = acct.get("days_since_touchpoint", 999)
+    days_sf = acct.get("days_since_rep_contact", 999)
+    days_contact = min(days_chorus, days_sf)  # best available signal
+
+    # trajectory_decline: >=25% booking drop last 3m vs prior 3m (min 20 bookings/m prior avg)
+    if len(trend) >= 6:
+        prior_3m = [m["bookings"] for m in trend[-6:-3]]
+        recent_3m = [m["bookings"] for m in trend[-3:]]
+        avg_prior = sum(prior_3m) / 3 if prior_3m else 0
+        avg_recent = sum(recent_3m) / 3 if recent_3m else 0
+        if avg_prior >= 20 and avg_recent < avg_prior * 0.75:
+            signals.append("trajectory_decline")
+
+    # care_case: 2+ cases in 90d AND no contact in 45d
+    if case_data.get("case_count_90d", 0) >= 2 and days_contact > 45:
+        signals.append("care_case")
+
+    # activation_gap: signed 21-90 days ago, not yet activated
+    signed_str = acct.get("signed_date", "")
+    if signed_str:
+        days_since_signed = days_since(signed_str)
+        is_activated = acct.get("is_activated", False)
+        if 21 <= days_since_signed <= 90 and not is_activated:
+            signals.append("activation_gap")
+
+    return signals
+
+
 def compute_days_touchpoint(acct: dict, seed: int) -> int:
     """
     Chorus call dates are from 2024-2025 so raw date math makes every account
@@ -402,7 +435,8 @@ def compute_days_touchpoint(acct: dict, seed: int) -> int:
 
 
 def main():
-    data_path = os.path.join(os.path.dirname(__file__), "..", "public", "rep-accounts.json")
+    data_path = os.path.join(os.path.dirname(__file__), "..", "data", "rep-accounts.json")
+    public_path = os.path.join(os.path.dirname(__file__), "..", "public", "rep-accounts.json")
     with open(data_path) as f:
         data = json.load(f)
 
@@ -427,24 +461,36 @@ def main():
                 days_touchpoint = compute_days_touchpoint(acct, seed)
             arr = compute_arr(acct, products)
             health = compute_health(acct, products, days_touchpoint)
+            flare_signals = compute_flare_signals(acct)
 
-            rng = random.Random(seed)
-            open_tickets = 0
-            if health == "cancel_risk":
-                open_tickets = rng.randint(1, 3)
-            elif health == "at_risk":
-                open_tickets = rng.randint(0, 2)
+            # Use real open_cases from case_data when available; fall back to RNG
+            case_data = acct.get("case_data", {})
+            real_open = case_data.get("open_cases", -1)
+            if real_open >= 0:
+                open_tickets = real_open
+            else:
+                rng = random.Random(seed)
+                open_tickets = 0
+                if health == "cancel_risk":
+                    open_tickets = rng.randint(1, 3)
+                elif health == "at_risk":
+                    open_tickets = rng.randint(0, 2)
 
             acct["products"] = products
             acct["days_since_touchpoint"] = days_touchpoint
             acct["total_arr"] = arr
             acct["account_health"] = health
+            acct["flare_signals"] = flare_signals
             if open_tickets > 0:
                 acct["open_support_tickets"] = open_tickets
+            elif "open_support_tickets" in acct:
+                del acct["open_support_tickets"]
 
         rep["accounts"] = accounts
 
     with open(data_path, "w") as f:
+        json.dump(data, f, indent=2)
+    with open(public_path, "w") as f:
         json.dump(data, f, indent=2)
 
     total_accounts = sum(len(rep.get("accounts", [])) for k, rep in data.items() if k != "_meta")

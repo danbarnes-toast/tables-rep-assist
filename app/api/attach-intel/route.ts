@@ -3,6 +3,8 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { execSync } from 'child_process';
 
+const LIVE_STATUSES = new Set(['live_healthy', 'live_stalled', 'live_at_risk']);
+
 const ENABLED = process.env.ATTACH_INTEL_ENABLED !== 'false';
 
 // In-memory cache: key = "email:refMonth", TTL = 8 hours
@@ -50,6 +52,43 @@ interface AttachProduct {
 async function loadBenchmarks(): Promise<Benchmarks> {
   const raw = await readFile(join(process.cwd(), 'data', 'cohort_benchmarks.json'), 'utf-8');
   return JSON.parse(raw);
+}
+
+// Read attach rates from pre-computed rep-accounts.json (no Snowflake needed at runtime).
+// Returns null if the rep isn't in the file.
+async function ratesFromJson(email: string): Promise<{
+  oo: number; xc: number; mkt: number; loyalty: number;
+  ooAttached: number; xcAttached: number; mktAttached: number; loyaltyAttached: number;
+  totalAccts: number;
+} | null> {
+  try {
+    const raw = await readFile(join(process.cwd(), 'data', 'rep-accounts.json'), 'utf-8');
+    const data = JSON.parse(raw) as Record<string, { accounts?: Array<{ products?: Array<{ product: string; status: string }> }> }>;
+    const repKey = Object.keys(data).find(k => k.toLowerCase() === email.toLowerCase());
+    if (!repKey) return null;
+    const accounts = data[repKey].accounts ?? [];
+    const total = accounts.length;
+    if (total === 0) return null;
+
+    let ooA = 0, xcA = 0, mktA = 0, loyA = 0;
+    for (const acct of accounts) {
+      const productMap = Object.fromEntries((acct.products ?? []).map(p => [p.product, p.status]));
+      if (LIVE_STATUSES.has(productMap['Websites + Online Ordering'] ?? '')) ooA++;
+      if (LIVE_STATUSES.has(productMap['xtraCHEF'] ?? '')) xcA++;
+      if (LIVE_STATUSES.has(productMap['Toast Marketing'] ?? '')) mktA++;
+      if (LIVE_STATUSES.has(productMap['Toast Loyalty'] ?? '') || LIVE_STATUSES.has(productMap['Loyalty'] ?? '')) loyA++;
+    }
+
+    return {
+      totalAccts: total,
+      ooAttached: ooA, oo: Math.round(ooA * 100 / total * 10) / 10,
+      xcAttached: xcA, xc: Math.round(xcA * 100 / total * 10) / 10,
+      mktAttached: mktA, mkt: Math.round(mktA * 100 / total * 10) / 10,
+      loyaltyAttached: loyA, loyalty: Math.round(loyA * 100 / total * 10) / 10,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function queryPersonalRates(email: string, refMonth: string): {
@@ -156,7 +195,10 @@ export async function GET(req: NextRequest) {
   }
 
   const refMonth = benchmarks.ref_month;
-  const personal = cachedQuery(email, refMonth);
+  // Try pre-computed data first (works on Vercel without Snowflake connector).
+  // Fall back to live Snowflake query only when the rep isn't in the JSON.
+  const personalFromJson = await ratesFromJson(email);
+  const personal = personalFromJson ?? cachedQuery(email, refMonth);
 
   if (!personal) {
     // Return benchmarks only - AM not found in Snowflake (demo accounts)

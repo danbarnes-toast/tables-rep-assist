@@ -30,7 +30,8 @@ except ImportError:
     print("Run this script from tables-pm-workspace/ or ensure the path is correct.")
     sys.exit(1)
 
-REP_ACCOUNTS_PATH = Path(__file__).parent.parent / "public" / "rep-accounts.json"
+REP_ACCOUNTS_PATH = Path(__file__).parent.parent / "data" / "rep-accounts.json"
+REP_ACCOUNTS_PUBLIC_PATH = Path(__file__).parent.parent / "public" / "rep-accounts.json"
 
 ACCOUNTS_SQL = """
 WITH rep AS (
@@ -50,6 +51,8 @@ rep_accounts AS (
         c.STATE,
         c.ACCOUNT_TOAST_GUID,
         c.SALESFORCE_ACCOUNTID,
+        c.ACCOUNT_GRADE,
+        c.ACCOUNT_PROFITABILITY_BUCKET,
         opp.OPPORTUNITY_CLOSE_DATE AS signed_date
     FROM TOAST.GTM.OPPORTUNITY opp
     JOIN TOAST.ANALYTICS_CORE.CUSTOMER c ON opp.SALESFORCE_ACCOUNTID = c.SALESFORCE_ACCOUNTID
@@ -94,6 +97,8 @@ SELECT
     COALESCE(bs.BOOKINGS_90D, 0) AS bookings_90d,
     COALESCE(bs.COVERS_90D, 0) AS covers_90d,
     bs.LAST_BOOKING_DATE,
+    a.ACCOUNT_GRADE,
+    a.ACCOUNT_PROFITABILITY_BUCKET,
     r.EMPLOYEE_NAME AS rep_name,
     r.TEAM,
     r.REGION
@@ -146,6 +151,32 @@ FROM TOAST.ANALYTICS_CORE_ARR.CURRENT_MODULE_ACTIVATION_ADOPTION
 WHERE SALESFORCE_ACCOUNTID = '{account_id}'
   AND SAAS_STATUS IN ('Live', 'Backlog')
 ORDER BY LINE_OF_BUSINESS, MODULE_NAME
+"""
+
+SUPPORT_CASES_BATCH_SQL = """
+SELECT
+    st.SALESFORCE_ACCOUNTID,
+    COUNT(*) as case_count_90d,
+    SUM(CASE WHEN st.CASE_STATUS = 'Open' THEN 1 ELSE 0 END) as open_cases,
+    SUM(CASE WHEN ac.IS_ESCALATED = TRUE THEN 1 ELSE 0 END) as escalated_cases,
+    DATEDIFF(day, MAX(st.CREATED_DATETIME)::DATE, CURRENT_DATE()) as days_since_last_case,
+    MODE(st.CASE_TICKET_CATEGORY) as top_case_category,
+    ARRAY_AGG(st.CASE_SUBJECT) WITHIN GROUP (ORDER BY st.CREATED_DATETIME DESC) as case_subjects
+FROM TOAST.CS_CUSTOMER_CARE.SUPPORT_TICKET st
+LEFT JOIN TOAST.ANALYTICS_CORE.ALL_CASES ac ON st.SALESFORCE_CASEID = ac.SALESFORCE_CASEID
+WHERE st.SALESFORCE_ACCOUNTID IN ({ids})
+  AND st.CREATED_DATETIME >= DATEADD(DAY, -90, CURRENT_DATE)
+GROUP BY 1
+"""
+
+TASK_ACTIVITY_BATCH_SQL = """
+SELECT
+    SALESFORCE_ACCOUNTID,
+    MAX(CREATED_DATE)::DATE as last_contact_date,
+    DATEDIFF(day, MAX(CREATED_DATE)::DATE, CURRENT_DATE()) as days_since_rep_contact
+FROM TOAST.ANALYTICS_CORE.TASK_ACTIVITY
+WHERE SALESFORCE_ACCOUNTID IN ({ids})
+GROUP BY 1
 """
 
 COMPETITOR_SQL = """
@@ -282,6 +313,8 @@ def seed_rep(email: str, write: bool = False):
             "bookings_90d": int(row["BOOKINGS_90D"]),
             "covers_90d": int(row["COVERS_90D"] or 0),
             "last_booking_date": str(row["LAST_BOOKING_DATE"]) if row["LAST_BOOKING_DATE"] else None,
+            "account_grade": str(row["ACCOUNT_GRADE"] or ""),
+            "account_profitability_bucket": str(row["ACCOUNT_PROFITABILITY_BUCKET"] or ""),
             "monthly_trend": trend,
             "chorus_calls": chorus_calls,
             "days_since_touchpoint": days_since_touchpoint,
@@ -303,6 +336,60 @@ def seed_rep(email: str, write: bool = False):
 
     for acct in accounts:
         acct["current_booking_platform"] = competitor_map.get(acct["toast_guid"], "None")
+
+    # Batch fetch support cases for all accounts (Phase 1)
+    all_sf_ids = [a["salesforce_account_id"] for a in accounts if a.get("salesforce_account_id")]
+    if all_sf_ids:
+        ids_str = ", ".join(f"'{i}'" for i in all_sf_ids)
+        print("  Fetching support cases (batch)...", file=sys.stderr)
+        try:
+            cases_df = quick_query(SUPPORT_CASES_BATCH_SQL.format(ids=ids_str))
+            case_map = {}
+            for _, cr in cases_df.iterrows():
+                subjects = cr.get("CASE_SUBJECTS") or []
+                if not isinstance(subjects, list):
+                    subjects = list(subjects) if subjects else []
+                case_map[cr["SALESFORCE_ACCOUNTID"]] = {
+                    "case_count_90d": int(cr["CASE_COUNT_90D"] or 0),
+                    "open_cases": int(cr["OPEN_CASES"] or 0),
+                    "escalated_cases": int(cr["ESCALATED_CASES"] or 0),
+                    "days_since_last_case": int(cr["DAYS_SINCE_LAST_CASE"] or 999),
+                    "top_case_category": str(cr["TOP_CASE_CATEGORY"] or ""),
+                    "case_subjects": subjects[:3],
+                }
+            matched = sum(1 for a in accounts if a.get("salesforce_account_id") in case_map)
+            print(f"  Support cases: {matched}/{len(all_sf_ids)} accounts matched", file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: support case batch failed: {e}", file=sys.stderr)
+            case_map = {}
+        for acct in accounts:
+            sf_id = acct.get("salesforce_account_id", "")
+            acct["case_data"] = case_map.get(sf_id, {
+                "case_count_90d": 0, "open_cases": 0, "escalated_cases": 0,
+                "days_since_last_case": 999, "top_case_category": "", "case_subjects": []
+            })
+
+    # Batch fetch rep contact dates from TASK_ACTIVITY (Phase 2)
+    if all_sf_ids:
+        print("  Fetching rep contact dates (TASK_ACTIVITY batch)...", file=sys.stderr)
+        try:
+            contact_df = quick_query(TASK_ACTIVITY_BATCH_SQL.format(ids=ids_str))
+            contact_map = {}
+            for _, tr in contact_df.iterrows():
+                contact_map[tr["SALESFORCE_ACCOUNTID"]] = {
+                    "days_since_rep_contact": int(tr["DAYS_SINCE_REP_CONTACT"] or 999),
+                    "last_contact_date": str(tr["LAST_CONTACT_DATE"] or ""),
+                }
+            matched = sum(1 for a in accounts if a.get("salesforce_account_id") in contact_map)
+            print(f"  TASK_ACTIVITY: {matched}/{len(all_sf_ids)} accounts matched", file=sys.stderr)
+        except Exception as e:
+            print(f"  Warning: TASK_ACTIVITY batch failed: {e}", file=sys.stderr)
+            contact_map = {}
+        for acct in accounts:
+            sf_id = acct.get("salesforce_account_id", "")
+            if sf_id in contact_map:
+                acct["days_since_rep_contact"] = contact_map[sf_id]["days_since_rep_contact"]
+                acct["last_contact_date"] = contact_map[sf_id]["last_contact_date"]
 
     # Pick region states based on rep's region string
     region_lower = region.lower()
@@ -344,6 +431,7 @@ def seed_rep(email: str, write: bool = False):
         data = json.loads(REP_ACCOUNTS_PATH.read_text())
         data[email] = payload
         REP_ACCOUNTS_PATH.write_text(json.dumps(data, indent=2))
+        REP_ACCOUNTS_PUBLIC_PATH.write_text(json.dumps(data, indent=2))
         print(f"Written to {REP_ACCOUNTS_PATH}", file=sys.stderr)
     else:
         print(json.dumps({email: payload}, indent=2))
@@ -435,6 +523,7 @@ def refresh_rep(email: str):
 
     rep["seeded_at"] = str(date.today())
     REP_ACCOUNTS_PATH.write_text(json.dumps(data, indent=2))
+    REP_ACCOUNTS_PUBLIC_PATH.write_text(json.dumps(data, indent=2))
     print(f"Refresh complete: {updated} accounts updated.", file=sys.stderr)
 
 
