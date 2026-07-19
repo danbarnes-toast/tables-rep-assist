@@ -84,7 +84,7 @@ function LoginContent() {
           </svg>
         </div>
         <span style={{ fontWeight: 700, fontSize: 16, color: '#fff', letterSpacing: '-0.01em' }}>
-          Tables <span style={{ color: '#FF4C00' }}>Rep</span>
+          Account <span style={{ color: '#FF4C00' }}>Manager</span>
         </span>
       </div>
 

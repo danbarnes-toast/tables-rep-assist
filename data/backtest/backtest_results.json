@@ -1,0 +1,30 @@
+{
+  "churned": {
+    "label": "Churned",
+    "n": 1532,
+    "any_signal_rate": 10.4,
+    "trajectory_decline_rate": 25.3,
+    "silence_rate": 10.0,
+    "adoption_lapse_rate": 49.0,
+    "avg_case_count": 4.52,
+    "avg_days_since_contact": 134.0
+  },
+  "control": {
+    "label": "Control",
+    "n": 500,
+    "any_signal_rate": 6.2,
+    "trajectory_decline_rate": 16.4,
+    "silence_rate": 5.6,
+    "adoption_lapse_rate": 41.2,
+    "avg_case_count": 4.93,
+    "avg_days_since_contact": 117.0
+  },
+  "recall_pct": 10.4,
+  "fpr_pct": 6.2,
+  "fpr_ceiling_met": true,
+  "signal_lifts": {
+    "trajectory_decline": 1.5,
+    "silence": 1.8,
+    "adoption_lapse": 1.2
+  }
+}

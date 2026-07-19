@@ -1,5 +1,6 @@
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
+import type { ProductHealth } from '@/lib/platform-types';
 
 export const maxDuration = 60;
 
@@ -31,6 +32,12 @@ interface PrepRequest {
       summary: string;
       action_items: string;
     }[];
+    products?: ProductHealth[];
+    days_since_touchpoint?: number;
+    open_support_tickets?: number;
+    total_arr?: number;
+    account_health?: 'healthy' | 'at_risk' | 'cancel_risk';
+    locations?: number;
   };
 }
 
@@ -48,24 +55,45 @@ function buildPrepPrompt(req: PrepRequest): string {
   const competitor = account.current_booking_platform && account.current_booking_platform !== 'None'
     ? account.current_booking_platform : 'None';
 
-  return `Rep: ${repName} (${repTeam})
-Account: ${account.name} — ${account.city}, ${account.state}
-Signed: ${account.signed_date} | Status: ${account.activation_status} | Competitor: ${competitor}
-Bookings (90d): ${account.bookings_90d}
+  let productSummary = '';
+  if (account.products && account.products.length > 0) {
+    const purchased = account.products.filter(p => p.status !== 'not_purchased');
+    const atRisk = purchased.filter(p => ['live_stalled', 'live_at_risk', 'purchased_not_activated'].includes(p.status));
+    const expansion = account.products.filter(p => p.status === 'not_purchased');
+    productSummary = `\nPRODUCT PORTFOLIO:\n`;
+    purchased.forEach(p => {
+      productSummary += `- ${p.product}: ${p.status}`;
+      if (p.notes) productSummary += ` (${p.notes})`;
+      productSummary += '\n';
+    });
+    if (atRisk.length > 0) productSummary += `AT-RISK: ${atRisk.map(p => p.product).join(', ')}\n`;
+    if (expansion.length > 0) productSummary += `NOT PURCHASED (expansion): ${expansion.map(p => p.product).join(', ')}\n`;
+  }
 
+  const locStr = account.locations && account.locations > 1 ? ` (${account.locations} locations)` : '';
+  const arrStr = account.total_arr ? ` | ARR: $${account.total_arr.toLocaleString()}` : '';
+  const touchStr = account.days_since_touchpoint !== undefined ? ` | Days since touchpoint: ${account.days_since_touchpoint}` : '';
+  const ticketStr = account.open_support_tickets ? ` | Open tickets: ${account.open_support_tickets}` : '';
+  const healthStr = account.account_health ? ` | Health: ${account.account_health}` : '';
+
+  return `Rep: ${repName} (${repTeam})
+Account: ${account.name} - ${account.city}, ${account.state}${locStr}
+Signed: ${account.signed_date} | Status: ${account.activation_status} | Competitor: ${competitor}${healthStr}
+Bookings (90d): ${account.bookings_90d}${arrStr}${touchStr}${ticketStr}
+${productSummary}
 CALL HISTORY:
 ${callsText || 'No call history available.'}
 
 Generate a pre-call brief as JSON with exactly this shape:
 {
-  "situation": "2-3 sentence snapshot of the deal: who they are, where they are in the process, what matters most right now",
+  "situation": "2-3 sentence snapshot: who they are, where they are in the process, ALL active products and their health, what matters most right now",
   "discussed": [
-    "bullet: specific thing discussed in calls — name people and dates",
+    "bullet: specific thing discussed in calls - name people and dates",
     ...
   ],
   "open_commitments": [
     {
-      "owner": "Tanguy | Sarah | Nadine | etc",
+      "owner": "rep name | customer contact name",
       "item": "specific outstanding action item",
       "status": "pending | likely_done | unknown"
     },
@@ -73,15 +101,15 @@ Generate a pre-call brief as JSON with exactly this shape:
   ],
   "predicted_objections": [
     {
-      "objection": "the exact objection the prospect might raise",
-      "counter": "the specific response Tanguy should give, grounded in what was said in the calls"
+      "objection": "the exact objection the customer might raise",
+      "counter": "the specific response grounded in what was said in the calls"
     },
     ...
   ],
-  "suggested_opening": "The exact first sentence Tanguy should say to open this call. Specific, warm, references something from the last call.",
-  "one_close": "The single most important next step to try to get today. Specific action, not a goal.",
+  "suggested_opening": "The exact first sentence to open this call. Specific, warm, references something from the last call or a specific product metric.",
+  "one_close": "The single most important next step to get today. Specific action, not a goal. If a product is at risk, prioritize retention over expansion.",
   "confidence": "high | medium | low",
-  "confidence_reason": "why confidence is high/medium/low — what information is missing or solid"
+  "confidence_reason": "why confidence is high/medium/low and what information is missing or solid"
 }`;
 }
 

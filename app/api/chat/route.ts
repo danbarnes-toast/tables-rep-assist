@@ -1,6 +1,7 @@
 import { openai } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages } from 'ai';
-import { buildSystemPrompt, type RepContext, type AccountContext } from '@/lib/system-prompt';
+import { buildSystemPrompt } from '@/lib/system-prompt';
+import type { RepContext, AccountContext } from '@/lib/platform-types';
 
 export const maxDuration = 300;
 
@@ -14,7 +15,8 @@ export async function POST(req: Request) {
     ? { ...body.repContext, language: language ?? body.repContext.language }
     : undefined;
   const accountContext: AccountContext | undefined = body.accountContext ?? undefined;
-  const system = buildSystemPrompt(repContext, accountContext, language);
+  const runtime: Record<string, string> | undefined = body.runtime ?? undefined;
+  const system = buildSystemPrompt({ repContext, accountContext, runtime });
 
   const result = streamText({
     model: openai('gpt-4o'),

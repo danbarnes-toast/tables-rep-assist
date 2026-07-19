@@ -1,0 +1,31 @@
+{
+  "ref_month": "2026-06-01",
+  "generated_at": "2026-07-16",
+  "am_count": 272,
+  "products": [
+    {
+      "key": "oo",
+      "name": "Online Ordering",
+      "medianPct": 90.0,
+      "topDecilePct": 100.0
+    },
+    {
+      "key": "xc",
+      "name": "xtraCHEF",
+      "medianPct": 30.0,
+      "topDecilePct": 56.1
+    },
+    {
+      "key": "mkt",
+      "name": "Toast Marketing",
+      "medianPct": 70.0,
+      "topDecilePct": 88.2
+    },
+    {
+      "key": "loyalty",
+      "name": "Loyalty",
+      "medianPct": 72.7,
+      "topDecilePct": 90.0
+    }
+  ]
+}

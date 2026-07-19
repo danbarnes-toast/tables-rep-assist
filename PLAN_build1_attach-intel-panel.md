@@ -1,0 +1,140 @@
+# Build 1: Attach Intel Panel
+**Status:** Ready for implementation  
+**Last updated:** Jul 16, 2026  
+**Parent plan:** `PLAN_product-knowledge-layer.md`
+
+---
+
+## What it is
+
+A panel on the Home tab of AM Assist showing each AM their attach rate per product vs. anonymous cohort benchmarks (median and top decile). Diagnostic, not leaderboard. No other rep names visible. No manager view in Phase 1.
+
+The panel answers: "For my book, which products am I significantly below median on, and how far off am I from the top decile?"
+
+---
+
+## Snowflake join path (validated Jul 16, 2026)
+
+Spike confirmed clean on 20 AMs, 0 gaps.
+
+```
+AM email (from AM Assist session)
+  -> TOAST.ANALYTICS_CORE.MONTHLY_ACCOUNT_OWNER
+      join: SALESFORCE_ACCOUNTOWNERID = EMPLOYEE_CURRENT.SALESFORCE_USERID
+  -> TOAST.ANALYTICS_CORE.EMPLOYEE_CURRENT
+      field: EMAIL_ADDRESS (matches AM Assist login email)
+  -> MONTHLY_ACCOUNT_OWNER.SALESFORCE_ACCOUNTID
+  -> TOAST.ANALYTICS_CORE_ARR.MONTHLY_CUSTOMER_MODULE_ARR
+      filter: FIRSTDAYOFMONTH, IS_INTERNATIONAL_CUSTOMER = FALSE,
+              CUSTOMER_MARKET_SEGMENT IN ('SMB', 'Mid-Market')
+```
+
+No CRM table. No cross-team dependency. `ACCOUNT_INTERNAL_STAKEHOLDERS.ACCOUNT_OWNER_EMAIL` is hashed - do not use it.
+
+---
+
+## Products to track (four, matching the behavioral evidence)
+
+| Product | MODULE_NAME filter | MTAU-linked |
+|---------|-------------------|-------------|
+| Online Ordering | `MODULE_NAME = 'Online Ordering'` | Yes |
+| xtraCHEF | `MODULE_NAME LIKE '%xtraChef%'` | No |
+| Toast Marketing | `MODULE_NAME IN ('Marketing', 'SMS Marketing')` | Yes |
+| Loyalty | `MODULE_NAME = 'Loyalty'` | Yes |
+
+---
+
+## Data pipeline
+
+**Time window:** Personal attach rates use the most recent complete month (currently Jun 2026). Not rolling - a single monthly snapshot matches the cohort benchmark period.
+
+**Query execution model:** Cohort benchmarks (median and top decile per product) are precomputed monthly by `scripts/compute_cohort_benchmarks.py` and written to `data/cohort_benchmarks.json`. The API reads from this file - no live Snowflake query for benchmarks. The AM's personal rates run one live Snowflake query per session (or daily-cached). Blast radius if the monthly batch fails: the API returns stale benchmarks with a date label. No silent failure.
+
+**Business case:** Closing the xtraCHEF gap halfway (median from 32% to 45%) across 20 AMs' books (average 60 accounts each) = ~156 net new xtraCHEF attachments. At Jun 2026 xtraCHEF ARR per location (~$1,200/year), that is ~$187K incremental ARR. The same math on Marketing or Loyalty produces similar figures. This tool targets AMs in the 40th-70th percentile by attach rate - not top performers who already know their gaps, not bottom decile where the problem is likely motivation or territory fit.
+
+The API returns:
+- This AM's attach rate per product (accounts with product live / total live Tables accounts)
+- Cohort median and top decile from precomputed file
+- Total Tables accounts in this AM's book (denominator)
+
+---
+
+## API route
+
+New route: `app/api/attach-intel/route.ts`
+
+Accepts: `{ repEmail: string, refMonth?: string }` (defaults to most recent complete month)
+
+Returns:
+```typescript
+{
+  products: Array<{
+    name: string           // "xtraCHEF"
+    myPct: number          // 32.1
+    medianPct: number      // 31.5
+    topDecilePct: number   // 72.0
+    gapToMedian: number    // +0.6 (positive = above, negative = below)
+    gapToTopDecile: number // -39.9
+    myAttached: number     // 14
+    totalAccts: number     // 43
+  }>
+  refMonth: string         // "2026-06-01"
+  totalAccts: number       // 43
+}
+```
+
+---
+
+## UI component: AttachIntelPanel
+
+Location: `app/page.tsx` (inline with existing Home tab components)
+
+Layout:
+- Section header: "Your attach rates - June 2026" with a small "vs. cohort" tooltip
+- 4 product cards in a 2x2 grid (desktop) / stacked column (mobile)
+- Each card:
+  - Product name
+  - Your rate (large, bold)
+  - Progress bar: your rate vs. median (gray) vs. top decile (faint)
+  - Gap label: "+Xpp above median" (green) or "Xpp below median" (amber)
+- Bottom note: "Cohort: [N] AMs with 10+ Tables accounts. No names shared."
+
+Color logic:
+- `myPct >= topDecilePct * 0.9`: green (at or near top decile)
+- `myPct >= medianPct`: amber (above median but room to grow)
+- `myPct < medianPct`: red/amber depending on gap size
+
+Loading state: skeleton cards while API fetches.
+
+Kill switch: `ATTACH_INTEL_ENABLED` env var. Panel renders nothing when false.
+
+---
+
+## Files to create/modify
+
+| File | Change |
+|------|--------|
+| `app/api/attach-intel/route.ts` | New. Snowflake query + cohort benchmark logic |
+| `app/page.tsx` | Add `AttachIntelPanel` component + call in Home tab |
+| `scripts/compute_cohort_benchmarks.py` | New. Precomputes median + top decile per product, writes to `data/cohort_benchmarks.json` |
+| `data/cohort_benchmarks.json` | New. Generated by script, committed monthly |
+
+---
+
+## Adoption model
+
+This is opt-in by each AM - they see the panel when they open AM Assist. No manager rollout required. AM Assist session owner (Dan) tracks weekly active users from server logs. If week-2 WAU drops below 20%, intervene before the week-4 gate.
+
+## Phase 1 kill condition
+
+Panel WAU below 30% at Sep 29 (4 weeks post-launch) = halt Build 3. If adoption fails, diagnose whether it is a tool design problem (panel not surfaced clearly) or a rollout problem (AMs not aware the tool exists) before killing the thesis.
+
+---
+
+## Out of scope for Build 1
+
+- Manager view (no names visible to anyone but the AM themselves)
+- Historical trend (single month only)
+- Drill-down to individual accounts (that is Build 3)
+- Products beyond the four listed above
+- AI coaching copy in the panel (Build 3 adds entry lines)
