@@ -1860,9 +1860,10 @@ function speakText(text: string, lang: string) {
   else { window.speechSynthesis.addEventListener('voiceschanged', assign, { once: true }); }
 }
 
-function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: {
+function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx, runtime = {} }: {
   mode: 'ask' | 'train'; repData: RepData | null;
   selectedAccountIdx: number | null; setSelectedAccountIdx: (i: number | null) => void;
+  runtime?: Record<string, string>;
 }) {
   const { messages, sendMessage, status: chatStatus } = useChat({ id: mode });
   const [input, setInput] = useState('');
@@ -2772,7 +2773,7 @@ export default function Home() {
       id: 'ask',
       label: 'Ask',
       icon: <AskIcon />,
-      content: <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}><ChatPane mode="ask" repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} /></div>,
+      content: <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}><ChatPane mode="ask" repData={repData} selectedAccountIdx={selectedAccountIdx} setSelectedAccountIdx={setSelectedAccountIdx} runtime={runtime} /></div>,
     },
     {
       id: 'prep',

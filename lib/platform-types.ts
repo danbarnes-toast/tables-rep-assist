@@ -1,3 +1,11 @@
+export type RuntimeContext = Record<string, string>;
+
+export interface CollectorQuestion {
+  key: string;
+  label: string;
+  hint?: string;
+}
+
 export interface RepContext {
   rep_name: string;
   team: string;
