@@ -27,7 +27,18 @@ export interface AccountContext {
   signed_date?: string;
   products?: ProductHealth[];
   days_since_touchpoint?: number;
+  days_since_rep_contact?: number;
   open_support_tickets?: number;
+  case_data?: {
+    case_count_90d: number;
+    open_cases: number;
+    escalated_cases: number;
+    days_since_last_case: number;
+    top_case_category: string;
+    case_subjects: string[];
+  };
+  flare_signals?: string[];
+  account_grade?: string;
   total_arr?: number;
   renewal_date?: string;
   account_health?: 'healthy' | 'at_risk' | 'cancel_risk';

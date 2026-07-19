@@ -15,7 +15,8 @@ export async function POST(req: Request) {
     ? { ...body.repContext, language: language ?? body.repContext.language }
     : undefined;
   const accountContext: AccountContext | undefined = body.accountContext ?? undefined;
-  const system = buildSystemPrompt({ repContext, accountContext });
+  const runtime: Record<string, string> | undefined = body.runtime ?? undefined;
+  const system = buildSystemPrompt({ repContext, accountContext, runtime });
 
   const result = streamText({
     model: openai('gpt-4o'),

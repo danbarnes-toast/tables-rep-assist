@@ -4,6 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import type { RepContext, AccountContext } from '@/lib/platform-types';
+import { isCollectorComplete, saveCollectorAnswers, loadCollectorAnswers } from '@/lib/collector';
 import { TabShell } from '@/components/platform/TabShell';
 import type { NavTab } from '@/components/platform/MobileNav';
 import {
@@ -1874,11 +1875,12 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx }: 
   }, []);
   const selected = selectedAccountIdx !== null ? (repData?.accounts[selectedAccountIdx] ?? null) : null;
 
-  const contextRef = useRef<{ repContext?: RepContext; accountContext?: AccountContext; language?: string }>({});
+  const contextRef = useRef<{ repContext?: RepContext; accountContext?: AccountContext; language?: string; runtime?: Record<string, string> }>({});
   contextRef.current = {
     repContext: repData ? { rep_name: repData.rep_name, team: repData.team, region: repData.region } : undefined,
     accountContext: selected ? buildAccountPayload(selected) : undefined,
     language,
+    runtime: Object.keys(runtime).length > 0 ? runtime : undefined,
   };
 
   const currentLang = LANGUAGES.find(l => l.code === language) ?? LANGUAGES[0];
@@ -2601,6 +2603,9 @@ export default function Home() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const streak = useStreak();
   const [repEmail, setRepEmail] = useState<string | null>(null);
+  const [collectorDone, setCollectorDone] = useState(false);
+  const [collectorAnswers, setCollectorAnswers] = useState<Record<string, string>>({ focus: '', account: '' });
+  const [runtime, setRuntime] = useState<Record<string, string>>({});
 
   // Load session email from API
   useEffect(() => {
@@ -2609,6 +2614,16 @@ export default function Home() {
       return r.json();
     }).then(d => { if (d?.email) setRepEmail(d.email); }).catch(() => router.push('/login'));
   }, [router]);
+
+  // Check collector once email is known
+  useEffect(() => {
+    if (!repEmail) return;
+    if (isCollectorComplete('am')) {
+      const saved = loadCollectorAnswers('am') ?? {};
+      setRuntime(saved);
+      setCollectorDone(true);
+    }
+  }, [repEmail]);
 
   // Load persisted preferences + onboarding check
   useEffect(() => {
@@ -2647,10 +2662,57 @@ export default function Home() {
     setShowOnboarding(false);
   }, []);
 
+  const submitCollector = () => {
+    const rt: Record<string, string> = {};
+    if (collectorAnswers.focus?.trim()) rt.focus = collectorAnswers.focus.trim();
+    if (collectorAnswers.account?.trim()) rt.account = collectorAnswers.account.trim();
+    saveCollectorAnswers('am', rt);
+    setRuntime(rt);
+    setCollectorDone(true);
+  };
+
   // Show spinner while email not yet loaded
   if (!repEmail) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a' }}>
       <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid #FF4C00', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+    </div>
+  );
+
+  // Collector modal: shown once per session after login
+  const greeting2 = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
+  if (!collectorDone) return (
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page, #0a0a0a)', padding: 24 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', maxWidth: 340 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary, #f5f5f5)' }}>{greeting2}{firstName ? `, ${firstName}` : ''}.</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary, #666)', marginTop: 2 }}>Two quick questions to focus your session.</div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary, #999)' }}>What are you focused on today?</label>
+          <input
+            autoFocus
+            value={collectorAnswers.focus}
+            onChange={e => setCollectorAnswers(p => ({ ...p, focus: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter') submitCollector(); }}
+            placeholder="e.g. cancel risk review, xtraCHEF attach, QBR prep"
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border, #333)', background: 'var(--bg-card, #1a1a1a)', color: 'var(--text-primary, #f5f5f5)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+          />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary, #999)' }}>Any specific account on your mind?</label>
+          <input
+            value={collectorAnswers.account}
+            onChange={e => setCollectorAnswers(p => ({ ...p, account: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter') submitCollector(); }}
+            placeholder="e.g. 13 Coins Vancouver, or leave blank"
+            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border, #333)', background: 'var(--bg-card, #1a1a1a)', color: 'var(--text-primary, #f5f5f5)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button onClick={submitCollector} style={{ flex: 1, padding: '9px 16px', borderRadius: 8, background: '#FF4C00', color: '#fff', border: 'none', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Start session</button>
+          <button onClick={() => { setCollectorDone(true); }} style={{ padding: '9px 14px', borderRadius: 8, background: 'transparent', color: 'var(--text-tertiary, #666)', border: '1px solid var(--border, #333)', fontSize: 12, cursor: 'pointer' }}>Skip</button>
+        </div>
+      </div>
     </div>
   );
 

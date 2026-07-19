@@ -1,5 +1,6 @@
 import type { RepContext, AccountContext, ProductHealth } from '@/lib/platform-types';
 export type { RepContext, AccountContext, ProductHealth };
+import type { RuntimeContext } from '@/lib/platform-types';
 
 function buildAMBlock(rep: RepContext): string {
   const firstName = rep.rep_name.split(' ')[0];
@@ -93,9 +94,23 @@ function buildAccountBlock(acct: AccountContext): string {
     ? { healthy: 'HEALTHY', at_risk: 'AT RISK', cancel_risk: 'CANCEL RISK' }[acct.account_health]
     : null;
 
+  const flareDesc: Record<string, string> = {
+    trajectory_decline: 'Booking volume dropped 25%+ over the last 3 months vs the prior 3 months (signal: declining demand or lost confidence in the product)',
+    care_case: '2+ support cases in 90 days with no rep contact in 45+ days (signal: frustrated customer with no relationship buffer)',
+    activation_gap: 'Signed 3-12 weeks ago but not yet activated (signal: onboarding stall, early churn risk)',
+  };
+
+  const caseBlock = acct.case_data && acct.case_data.case_count_90d > 0
+    ? `\nSupport cases (90d): ${acct.case_data.case_count_90d} total, ${acct.case_data.open_cases} open${acct.case_data.escalated_cases > 0 ? `, ${acct.case_data.escalated_cases} ESCALATED` : ''}${acct.case_data.top_case_category ? ` | Top category: ${acct.case_data.top_case_category}` : ''}${acct.case_data.case_subjects.length > 0 ? `\nRecent case subjects: ${acct.case_data.case_subjects.slice(0, 3).join(' | ')}` : ''}`
+    : '';
+
+  const flareBlock = acct.flare_signals && acct.flare_signals.length > 0
+    ? `\nFlare signals active: ${acct.flare_signals.join(', ')}\n${acct.flare_signals.map(s => `  - ${s}: ${flareDesc[s] ?? s}`).join('\n')}`
+    : '';
+
   return `## ACTIVE ACCOUNT: ${acct.name}
-Location: ${acct.city}, ${acct.state}${acct.locations && acct.locations > 1 ? ` (${acct.locations} locations)` : ''} | Tables status: ${acct.activation_status} | Prior booking platform: ${competitor}${healthTag ? ` | Health: ${healthTag}` : ''}
-Bookings (90d): ${acct.bookings_90d} | Covers (90d): ${acct.covers_90d ?? 'N/A'}${acct.total_arr ? ` | ARR: $${acct.total_arr.toLocaleString()}` : ''}${bookingTrend ? `\n${bookingTrend}` : ''}${daysSinceSigned !== null ? `\nDays since signed: ${daysSinceSigned}` : ''}${acct.days_since_touchpoint !== undefined ? `\nDays since last Chorus-recorded call: ${acct.days_since_touchpoint >= 999 ? 'no call on record' : acct.days_since_touchpoint} (note: email and Salesloft outreach not captured here)` : ''}${acct.products?.some(p => p.notes?.includes('estimated') || p.notes?.includes('RNG')) ? '\nNote: some product health signals are estimated from activation status only - no usage-level data available for those products.' : ''}${acct.open_support_tickets ? `\nOpen support tickets: ${acct.open_support_tickets}` : ''}${acct.renewal_date ? `\nRenewal date: ${acct.renewal_date}` : ''}
+Location: ${acct.city}, ${acct.state}${acct.locations && acct.locations > 1 ? ` (${acct.locations} locations)` : ''} | Tables status: ${acct.activation_status} | Prior booking platform: ${competitor}${healthTag ? ` | Health: ${healthTag}` : ''}${acct.account_grade ? ` | Grade: ${acct.account_grade}` : ''}
+Bookings (90d): ${acct.bookings_90d} | Covers (90d): ${acct.covers_90d ?? 'N/A'}${acct.total_arr ? ` | ARR: $${acct.total_arr.toLocaleString()}` : ''}${bookingTrend ? `\n${bookingTrend}` : ''}${daysSinceSigned !== null ? `\nDays since signed: ${daysSinceSigned}` : ''}${acct.days_since_rep_contact !== undefined ? `\nDays since last Salesforce-logged contact: ${acct.days_since_rep_contact >= 999 ? 'no contact on record' : acct.days_since_rep_contact} (includes calls, emails, tasks logged in Salesforce)` : ''}${acct.days_since_touchpoint !== undefined ? `\nDays since last Chorus-recorded call: ${acct.days_since_touchpoint >= 999 ? 'no call on record' : acct.days_since_touchpoint} (Chorus only - recorded calls, not email/Salesloft)` : ''}${acct.products?.some(p => p.notes?.includes('estimated') || p.notes?.includes('RNG')) ? '\nNote: some product health signals are estimated from activation status only.' : ''}${caseBlock}${flareBlock}${acct.renewal_date ? `\nRenewal date: ${acct.renewal_date}` : ''}
 ${productBlock}${callHistory}
 Reference this account specifically. Flag risks and opportunities across ALL active products. Prioritize at-risk products and stalled activations before pitching expansion.
 
@@ -107,12 +122,19 @@ Reference this account specifically. Flag risks and opportunities across ALL act
 export interface AMPromptContext {
   repContext?: RepContext;
   accountContext?: AccountContext;
+  runtime?: RuntimeContext;
 }
 
 export function buildSystemPrompt(ctx?: AMPromptContext): string {
   let prefix = '';
   if (ctx?.repContext) prefix += buildAMBlock(ctx.repContext);
   if (ctx?.accountContext) prefix += buildAccountBlock(ctx.accountContext);
+  if (ctx?.runtime && Object.keys(ctx.runtime).length > 0) {
+    const lines = Object.entries(ctx.runtime)
+      .filter(([, v]) => v?.trim())
+      .map(([k, v]) => `- ${k.replace(/_/g, ' ')}: ${v}`);
+    if (lines.length) prefix += `\n## What the AM is focused on today\n${lines.join('\n')}\n`;
+  }
   return prefix + BASE_SYSTEM_PROMPT;
 }
 
@@ -317,6 +339,25 @@ RwG lets guests book directly from a Google Search result or Google Maps listing
 - When full prepayment makes sense: fixed-price events, prix fixe menus, ticketed experiences where the seat is the product. The operator needs to know revenue in advance.
 - Refund policy options: operators can set full refund, partial refund, or no refund within the cancellation window. Outside the window, refunds are always at the operator's discretion. The system does not automatically issue refunds -- the operator must action them in the Stripe dashboard.
 - Common gotcha: operator sets up a deposit but doesn't set a cancellation fee. Guests book with a deposit, cancel day-of, and get the deposit refunded automatically (because no cancellation policy is set). Operator loses the no-show protection they wanted.
+
+---
+
+## TOAST LOCAL AND GUEST DEMAND CONTEXT
+
+**What Toast Local is:** The consumer-facing side of Toast - a mobile app (iOS + Android) and web marketplace (toast.app) where guests discover restaurants, make reservations, and order online. Every booking made through Toast Local is an authenticated booking: the guest has a verified profile, Toast can track them across visits, and the restaurant gets a real guest record they can market to.
+
+**The platform reality as of mid-2026:** Toast Local is still building scale. Consumer user growth is below target - the platform does not yet have the critical mass of engaged guests that drives organic demand in most markets. This is an honest constraint. Some accounts with low booking volume are in markets where guest discovery through the platform is still limited. When an operator asks "why aren't my bookings growing?" - the honest answer sometimes includes the consumer platform still ramping. The AM's job is to make sure the account captures every booking that does happen, and is well-positioned as the platform scales. Do not oversell the demand side.
+
+**The pitch has changed.** In 2025 the winning Tables pitch was "same as OpenTable, plus promo." In 2026 it is guest data unification: every reservation, every loyalty point, every post-visit survey lives in one system that connects directly to the POS. No reconciliation, no separate guest database, no per-cover fees. Competitors cannot match this because their reservation data and the restaurant's POS data are separate systems. AMs should lead with this when operators ask about the competitive comparison.
+
+**What AMs never say to operators:** MTAUs (Monthly Transacting Authenticated Users) is the Toast Consumer team's growth north star - 2.5 million per month by end of 2026. It is a product team metric, not an AM talking point. Operators do not think in platform-level user counts; they think in covers, reservations, and revenue. If you need to describe consumer demand growth with an operator, say: "We are growing the number of guests who discover and book restaurants through Toast Local" - not "we are growing MTAUs." The AM's relevant framing is per-restaurant: how many of this account's guests are coming through the authenticated booking channel, not the platform aggregate.
+
+**AM actions on the demand side:**
+- Confirm every Tables account is visible in Toast Local (toast.app listing, photos current, accurate hours)
+- Confirm Reserve with Google is live and surfacing a "Reserve" button on the Google Business Profile - this is the highest-volume discovery channel for most markets
+- When booking volume is low: diagnose supply-side (setup, schedule, floor plan) before concluding demand is the issue. But if setup is clean and volume is still low, honest framing: "the consumer platform is still building in your market - you are well-positioned to capture growth as it ramps"
+
+**Authenticated bookings matter.** An authenticated booking means the guest profile is known and marketable. Staff should be directing guests to book through Toast Local / toast.app, not through a phone call or OpenTable, even if those channels still produce bookings. The long-term value to the restaurant is in the guest database, not just the reservation count.
 
 ---
 
