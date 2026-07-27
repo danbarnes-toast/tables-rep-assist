@@ -87,13 +87,48 @@ function Markdown({ text }: { text: string }) {
       elements.push(<ul key={`ul-${i}`} style={{ listStyle: 'disc', paddingLeft: 18, fontSize: 13, margin: '4px 0', color: 'var(--text-primary)' }}>{items}</ul>);
       continue;
     }
-    if (line.match(/^\d+\. /)) {
+    if (line.match(/^\d+[.] /)) {
       const items: React.ReactNode[] = [];
-      while (i < lines.length && lines[i].match(/^\d+\. /)) {
-        items.push(<li key={i} style={{ marginBottom: 2 }}>{renderInline(lines[i].replace(/^\d+\. /, ''))}</li>);
+      let num = 1;
+      while (i < lines.length) {
+        // skip blank lines between items, but only if a numbered item follows
+        while (i < lines.length && !lines[i].trim()) {
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j++;
+          if (j < lines.length && lines[j].match(/^\d+[.] /)) { i++; }
+          else { break; }
+        }
+        if (i >= lines.length || !lines[i].match(/^\d+[.] /)) break;
+        const cur = lines[i];
+        const mainText = cur.replace(/^\d+[.] /, '');
         i++;
+        const subItems: string[] = [];
+        while (i < lines.length && lines[i].match(/^[-*] /)) {
+          const sub = lines[i];
+          if (sub.match(/^[-*] /)) { subItems.push(sub.replace(/^[-*] /, '')); }
+          i++;
+        }
+        items.push(
+          <div key={`item-${num}`} style={{ display: 'flex', gap: 6, marginBottom: subItems.length ? 4 : 2, fontSize: 13, color: 'var(--text-primary)' }}>
+            <span style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums', minWidth: 16 }}>{num}.</span>
+            <div>
+              <span>{renderInline(mainText)}</span>
+              {subItems.length > 0 && (
+                <div style={{ marginTop: 3 }}>
+                  {subItems.map((sub, si) => (
+                    <div key={si} style={{ display: 'flex', gap: 4, color: 'var(--text-secondary)', fontSize: 12, lineHeight: 1.5, marginBottom: 1 }}>
+                      <span style={{ flexShrink: 0 }}>•</span>
+                      <span>{renderInline(sub)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+        num++;
       }
-      elements.push(<ol key={`ol-${i}`} style={{ listStyle: 'decimal', paddingLeft: 18, fontSize: 13, margin: '4px 0', color: 'var(--text-primary)' }}>{items}</ol>);
+      elements.push(<div key={`ol-${i}`} style={{ paddingLeft: 4, margin: '4px 0' }}>{items}</div>);
       continue;
     }
     elements.push(<p key={i} style={{ fontSize: 13, lineHeight: 1.65, color: 'var(--text-primary)', margin: 0 }}>{renderInline(line)}</p>);

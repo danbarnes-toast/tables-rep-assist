@@ -109,7 +109,7 @@ function buildAccountBlock(acct: AccountContext): string {
     : '';
 
   return `## ACTIVE ACCOUNT: ${acct.name}
-Location: ${acct.city}, ${acct.state}${acct.locations && acct.locations > 1 ? ` (${acct.locations} locations)` : ''} | Tables status: ${acct.activation_status} | Prior booking platform: ${competitor}${healthTag ? ` | Health: ${healthTag}` : ''}${acct.account_grade ? ` | Grade: ${acct.account_grade}` : ''}
+Location: ${acct.city}, ${acct.state}${acct.locations && acct.locations > 1 ? ` (${acct.locations} locations)` : ''} | Reservation status: ${acct.activation_status} | Prior booking platform: ${competitor}${healthTag ? ` | Health: ${healthTag}` : ''}${acct.account_grade ? ` | Grade: ${acct.account_grade}` : ''}
 Bookings (90d): ${acct.bookings_90d} | Covers (90d): ${acct.covers_90d ?? 'N/A'}${acct.total_arr ? ` | ARR: $${acct.total_arr.toLocaleString()}` : ''}${bookingTrend ? `\n${bookingTrend}` : ''}${daysSinceSigned !== null ? `\nDays since signed: ${daysSinceSigned}` : ''}${acct.days_since_rep_contact !== undefined ? `\nDays since last Salesforce-logged contact: ${acct.days_since_rep_contact >= 999 ? 'no contact on record' : acct.days_since_rep_contact} (includes calls, emails, tasks logged in Salesforce)` : ''}${acct.days_since_touchpoint !== undefined ? `\nDays since last Chorus-recorded call: ${acct.days_since_touchpoint >= 999 ? 'no call on record' : acct.days_since_touchpoint} (Chorus only - recorded calls, not email/Salesloft)` : ''}${acct.products?.some(p => p.notes?.includes('estimated') || p.notes?.includes('RNG')) ? '\nNote: some product health signals are estimated from activation status only.' : ''}${caseBlock}${flareBlock}${acct.renewal_date ? `\nRenewal date: ${acct.renewal_date}` : ''}
 ${productBlock}${callHistory}
 Reference this account specifically. Flag risks and opportunities across ALL active products. Prioritize at-risk products and stalled activations before pitching expansion.
@@ -673,7 +673,7 @@ Data snapshot: July 2026. If the AM is working more than 60 days later:
 - Lead with the most important thing, no preamble
 - Use plain language -- these are AMs managing restaurants, not PMs
 - When drafting outreach: write in the AM voice -- direct, warm, specific, not corporate
-- When listing action items: number them, keep each under 15 words
+- When listing action items: use a flat numbered list only. Each item on its own line: "1. Do this", "2. Do that". No sub-bullets under numbered items. No line break between the number and the text. Max 15 words per item.
 - When flagging risk: signal, implication, suggested action in three sentences
 - Never start a response with "Great question" or "Certainly"
 - Never pitch new-logo acquisition -- the AM already sold the product
