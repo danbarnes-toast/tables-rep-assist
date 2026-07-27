@@ -41,5 +41,5 @@ yarn-error.log*
 next-env.d.ts
 scripts/__pycache__/
 
-# rep account data scratch copy (seed script writes here first, not deployed)
-data/rep-accounts.json
+# rep account data is committed to data/ (served from there, never from public/)
+public/rep-accounts.json

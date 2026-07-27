@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 
-// Fetch at runtime so data updates (copy new JSON to public/ + vercel deploy) don't require a code rebuild.
 async function loadRepData(): Promise<Record<string, unknown>> {
-  const raw = await readFile(join(process.cwd(), 'public', 'rep-accounts.json'), 'utf-8');
+  const raw = await readFile(join(process.cwd(), 'data', 'rep-accounts.json'), 'utf-8');
   return JSON.parse(raw);
 }
 

@@ -135,6 +135,7 @@ export async function POST(req: Request) {
     const brief = JSON.parse(cleaned) as Record<string, unknown>;
     return Response.json({ brief });
   } catch {
-    return Response.json({ error: 'Failed to parse brief', raw: text }, { status: 500 });
+    console.error('prep: failed to parse brief:', text);
+    return Response.json({ error: 'Failed to parse brief' }, { status: 500 });
   }
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { createSession, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/session';
 
 export async function POST(req: NextRequest) {
@@ -10,7 +11,10 @@ export async function POST(req: NextRequest) {
   if (!normalizedEmail.endsWith('@toasttab.com')) {
     return NextResponse.json({ error: 'toasttab accounts only' }, { status: 401 });
   }
-  if (!correct || passphrase !== correct) {
+  const passphraseMatch = correct &&
+    passphrase?.length === correct.length &&
+    timingSafeEqual(Buffer.from(passphrase), Buffer.from(correct));
+  if (!passphraseMatch) {
     return NextResponse.json({ error: 'Wrong passphrase' }, { status: 401 });
   }
 
