@@ -2306,9 +2306,10 @@ function ROICalculator() {
             <label style={labelStyle}>Current platform</label>
             <select style={inputStyle} value={otTier} onChange={e => setOtTier(e.target.value as OtTierKey)}>
               {(Object.entries(OT_TIERS) as [OtTierKey, typeof OT_TIERS[OtTierKey]][]).map(([k, v]) => (
-                <option key={k} value={k}>OpenTable {v.label} (${v.monthlyBase}/mo + ${v.perCover}/cover)</option>
+                <option key={k} value={k}>OpenTable {v.label}</option>
               ))}
             </select>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3, display: 'block' }}>${tier.monthlyBase}/mo + ${tier.perCover}/cover</span>
           </div>
           <div>
             <label style={labelStyle}>Monthly covers (approx)</label>
