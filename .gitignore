@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 scripts/__pycache__/
+
+# rep account data scratch copy (seed script writes here first, not deployed)
+data/rep-accounts.json

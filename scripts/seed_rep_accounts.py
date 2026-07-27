@@ -30,7 +30,7 @@ except ImportError:
     print("Run this script from tables-pm-workspace/ or ensure the path is correct.")
     sys.exit(1)
 
-REP_ACCOUNTS_PATH = Path(__file__).parent.parent / "data" / "rep-accounts.json"
+REP_ACCOUNTS_PATH = Path(__file__).parent.parent / "public" / "rep-accounts.json"
 
 ACCOUNTS_SQL = """
 WITH rep AS (
