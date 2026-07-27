@@ -3,7 +3,7 @@ import { getSessionFromRequest } from '@/lib/session';
 
 const PUBLIC = ['/login', '/api/login', '/api/logout'];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (PUBLIC.some(p => path.startsWith(p))) return NextResponse.next();
   if (path.startsWith('/_next') || path.startsWith('/favicon')) return NextResponse.next();
