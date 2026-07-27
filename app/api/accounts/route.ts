@@ -13,8 +13,21 @@ export async function GET(req: NextRequest) {
 
   try {
     const repData = await loadRepData();
-    const data = repData[email];
+    const data = repData[email] as { accounts?: Record<string, unknown>[] } | undefined;
     if (!data) return NextResponse.json({ error: 'no data for this rep', email }, { status: 404 });
+
+    if (Array.isArray(data.accounts)) {
+      data.accounts = data.accounts
+        .filter((a) => !/placeholder|churn/i.test((a.name as string) ?? ''))
+        .map((a) => {
+          const dst = a.days_since_touchpoint as number | undefined;
+          if (dst !== undefined && dst > 365) a.days_since_touchpoint = null;
+          const dsr = a.days_since_rep_contact as number | undefined;
+          if (dsr !== undefined && dsr > 365) a.days_since_rep_contact = null;
+          return a;
+        });
+    }
+
     return NextResponse.json(data);
   } catch (err) {
     console.error('accounts route:', err);
