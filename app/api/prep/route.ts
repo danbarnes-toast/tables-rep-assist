@@ -1,5 +1,6 @@
 import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
+import { prepLimiter } from '@/lib/rate-limit';
 import type { ProductHealth } from '@/lib/platform-types';
 
 export const maxDuration = 60;
@@ -114,6 +115,10 @@ Generate a pre-call brief as JSON with exactly this shape:
 }
 
 export async function POST(req: Request) {
+  const sessionToken = req.headers.get('cookie')?.match(/session=([^;]+)/)?.[1] ?? 'anon';
+  const { allowed } = prepLimiter.check(sessionToken);
+  if (!allowed) return Response.json({ error: 'Rate limit exceeded' }, { status: 429 });
+
   const body = await req.json() as PrepRequest;
 
   if (!body.account) {

@@ -147,16 +147,21 @@ LEFT JOIN TOAST.ANALYTICS_CORE_ARR.MONTHLY_CUSTOMER_MODULE_ARR m_loy
 
   try {
     const wsDir = join(process.cwd(), '..', 'tables-pm-workspace');
-    const escaped = sql.replace(/"/g, '\\"').replace(/\n/g, ' ');
+    const snowflakeUser = execSync(`git -C "${wsDir}" config user.email`, { encoding: 'utf-8' }).trim();
     const result = execSync(
-      `SNOWFLAKE_USER="$(git -C "${wsDir}" config user.email)" ${wsDir}/venv/bin/python3 -c "
-import sys, json
+      `${wsDir}/venv/bin/python3 -c "
+import sys, json, os
 sys.path.insert(0, '${wsDir}')
 from snowflake_connector import quick_query
-df = quick_query("""${escaped}""")
+df = quick_query(os.environ['ATTACH_SQL'])
 print(json.dumps(df.to_dict(orient='records')))
 "`,
-      { timeout: 30000, encoding: 'utf-8', cwd: wsDir }
+      {
+        timeout: 30000,
+        encoding: 'utf-8',
+        cwd: wsDir,
+        env: { ...process.env, ATTACH_SQL: sql, SNOWFLAKE_USER: snowflakeUser },
+      }
     );
     const rows = JSON.parse(result.trim().split('\n').pop()!);
     if (!rows || rows.length === 0) return null;

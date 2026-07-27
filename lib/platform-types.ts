@@ -8,8 +8,8 @@ export interface CollectorQuestion {
 
 export interface RepContext {
   rep_name: string;
-  team: string;
-  region: string;
+  team?: string;
+  region?: string;
   language?: string;
 }
 
