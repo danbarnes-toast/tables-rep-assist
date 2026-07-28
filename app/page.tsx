@@ -8,9 +8,9 @@ import { isCollectorComplete, saveCollectorAnswers, loadCollectorAnswers } from 
 import { TabShell } from '@/components/platform/TabShell';
 import type { NavTab } from '@/components/platform/MobileNav';
 import {
-  OT_TIERS, TABLES_MONTHLY, RWG_BY_CATEGORY, TOAST_LOCAL_MONTHLY_AVG,
+  PLATFORM_TIERS, TABLES_MONTHLY, RWG_BY_CATEGORY, TOAST_LOCAL_MONTHLY_AVG,
   EM_LIFT_PCT, ADS_CPA_LOW, ADS_CPA_HIGH, ADS_MONTHLY_SPEND_DEFAULT, OT_NETWORK_PCT,
-  type OtTierKey, type CategoryKey,
+  type PlatformTierKey, type CategoryKey,
 } from '@/lib/roi-data';
 
 type Mode = 'home' | 'ask' | 'train' | 'prep' | 'roi' | 'accounts' | 'proof' | 'listen' | 'workflows';
@@ -813,11 +813,11 @@ function AttachIntelPanel({ repEmail, onShowGapAccounts }: {
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }}>
                 {hasPersonal && p.gapToMedian !== null ? (
                   <p style={{ fontSize: 9, color: aboveMedian ? '#10b981' : '#f59e0b', fontFamily: 'monospace' }}>
-                    {p.gapToMedian >= 0 ? '+' : ''}{p.gapToMedian}pp vs typical AM
+                    {p.gapToMedian >= 0 ? '+' : ''}{p.gapToMedian}pp vs typical rep
                   </p>
                 ) : (
                   <p style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
-                    typical AM: {p.medianPct}%
+                    typical rep: {p.medianPct}%
                   </p>
                 )}
                 <p style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
@@ -838,7 +838,7 @@ function AttachIntelPanel({ repEmail, onShowGapAccounts }: {
         })}
       </div>
       <div style={{ marginTop: 6 }}>
-        <p style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Comparing {data.amCount} AMs with 10+ Tables accounts</p>
+        <p style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Comparing {data.amCount} reps with 10+ Tables accounts</p>
         <p style={{ fontSize: 10, color: 'var(--text-tertiary)', opacity: 0.7 }}>No peer names shared</p>
       </div>
     </div>
@@ -852,25 +852,25 @@ const ONBOARDING_WEEKS: { label: string; items: { id: string; text: string; mode
   {
     label: 'Week 1 - Learn the product',
     items: [
-      { id: 'ob1', text: 'Complete your first mock pitch in Train mode', mode: 'train' },
-      { id: 'ob2', text: 'Ask the AI: "What are the top 3 OpenTable objections?"', mode: 'ask' },
-      { id: 'ob3', text: 'Run the ROI calculator with a real prospect in mind', mode: 'roi' },
+      { id: 'ob1', text: 'Ask the AI: "What are the top 3 OpenTable objections?"', mode: 'ask' },
+      { id: 'ob2', text: 'Run the ROI calculator with a real prospect in mind', mode: 'roi' },
+      { id: 'ob3', text: 'Browse your book in Accounts to find at-risk deals', mode: 'accounts' },
     ],
   },
   {
     label: 'Week 2 - Work your pipeline',
     items: [
       { id: 'ob4', text: 'Generate a prep brief before your first real call', mode: 'prep' },
-      { id: 'ob5', text: 'Review customer proof by category', mode: 'proof' },
-      { id: 'ob6', text: 'Ask the AI: "How do I handle a prospect that says they\'re happy with Resy?"', mode: 'ask' },
+      { id: 'ob5', text: 'Ask the AI: "How do I handle a prospect that says they\'re happy with Resy?"', mode: 'ask' },
+      { id: 'ob6', text: 'Use Live mode on a real call to catch objections in real time', mode: 'listen' },
     ],
   },
   {
     label: 'Weeks 3-4 - Close your first deal',
     items: [
-      { id: 'ob7', text: 'Run a mock call with a live objection in Train mode', mode: 'train' },
-      { id: 'ob8', text: 'Use Live mode on a real Zoom call', mode: 'listen' },
-      { id: 'ob9', text: 'Build your first ROI deck for an open opportunity', mode: 'roi' },
+      { id: 'ob7', text: 'Use Live mode on a real Zoom call', mode: 'listen' },
+      { id: 'ob8', text: 'Build your first ROI deck for an open opportunity', mode: 'roi' },
+      { id: 'ob9', text: 'Generate a prep brief the morning of a key close call', mode: 'prep' },
     ],
   },
 ];
@@ -1974,20 +1974,20 @@ function AccountsTab({ data, productFilter, onClearFilter }: { data: RepData; pr
 // ── Chat pane ──────────────────────────────────────────────────────────────
 const SUGGESTIONS: Record<'ask' | 'train', string[]> = {
   ask: [
-    'Review this account and give me the opening angle',
-    'Draft a follow-up email for my last call',
-    'Which accounts in my book are at risk right now?',
-    'What upsell should I pitch to a healthy 90-day account?',
-    'How do I handle a customer who is not activating?',
-    'What features should I make sure my customer is using?',
+    'Give me the opening angle for this prospect',
+    'Draft a follow-up email after my last discovery call',
+    'How do I handle a prospect who says they love OpenTable?',
+    'What\'s the ROI argument for a 50-cover restaurant?',
+    'How do I get a signed account to their first booking?',
+    'What should I emphasize for a Resy customer switching over?',
   ],
   train: [
-    'Walk me through activation best practices for a new account',
-    'What are the signals that an account is at churn risk?',
-    'How do I pitch Named Experiences to an existing customer?',
-    'Help me prepare for a QBR with a multi-location customer',
-    'What is the right cadence for AM touchpoints?',
-    'How do I escalate a product issue on behalf of a customer?',
+    'Walk me through how to run a strong Tables demo',
+    'What are the top objections from OpenTable prospects?',
+    'How do I close a prospect who went dark after a demo?',
+    'Help me prep for a discovery call with a new restaurant',
+    'What is the competitive story against Resy in NYC?',
+    'How do I get activation moving on a stalled signed account?',
   ],
 };
 
@@ -2345,7 +2345,7 @@ function ChatPane({ mode, repData, selectedAccountIdx, setSelectedAccountIdx, ru
 
 // ── ROI Calculator ─────────────────────────────────────────────────────────
 function ROICalculator() {
-  const [otTier, setOtTier] = useState<OtTierKey>('core');
+  const [platformKey, setPlatformKey] = useState<PlatformTierKey>('ot_core');
   const [monthlyCovers, setMonthlyCovers] = useState<number>(2000);
   const [locations, setLocations] = useState<number>(1);
   const [category, setCategory] = useState<CategoryKey>('casual_dining');
@@ -2353,14 +2353,14 @@ function ROICalculator() {
   const [hasAds, setHasAds] = useState(false);
   const [showInternal, setShowInternal] = useState(false);
 
-  const tier = OT_TIERS[otTier];
+  const tier = PLATFORM_TIERS[platformKey];
   const cat = RWG_BY_CATEGORY[category];
 
   // Section 1: Cost Relief
-  const otMonthlyPerLoc = tier.monthlyBase + monthlyCovers * tier.perCover;
-  const otAnnualPerLoc = otMonthlyPerLoc * 12;
+  const competitorMonthlyPerLoc = tier.monthlyBase + monthlyCovers * tier.perCover;
+  const competitorAnnualPerLoc = competitorMonthlyPerLoc * 12;
   const tablesAnnualPerLoc = TABLES_MONTHLY * 12;
-  const savingsPerLoc = otAnnualPerLoc - tablesAnnualPerLoc;
+  const savingsPerLoc = competitorAnnualPerLoc - tablesAnnualPerLoc;
   const totalSavings = savingsPerLoc * locations;
 
   // Section 2: Day 1 demand gen (observed)
@@ -2438,12 +2438,32 @@ function ROICalculator() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={labelStyle}>Current platform</label>
-            <select style={inputStyle} value={otTier} onChange={e => setOtTier(e.target.value as OtTierKey)}>
-              {(Object.entries(OT_TIERS) as [OtTierKey, typeof OT_TIERS[OtTierKey]][]).map(([k, v]) => (
-                <option key={k} value={k}>OpenTable {v.label}</option>
-              ))}
+            <select style={inputStyle} value={platformKey} onChange={e => setPlatformKey(e.target.value)}>
+              <optgroup label="OpenTable">
+                <option value="ot_basic">OpenTable Basic</option>
+                <option value="ot_core">OpenTable Core</option>
+                <option value="ot_pro">OpenTable Pro</option>
+              </optgroup>
+              <optgroup label="Resy">
+                <option value="resy_basic">Resy Basic</option>
+                <option value="resy_plus">Resy Plus</option>
+                <option value="resy_pro">Resy Pro</option>
+              </optgroup>
+              <optgroup label="Other">
+                <option value="yelp_gm">Yelp Guest Manager</option>
+                <option value="tock_core">Tock Core</option>
+                <option value="sevenrooms">SevenRooms</option>
+                <option value="none">No platform</option>
+              </optgroup>
             </select>
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3, display: 'block' }}>${tier.monthlyBase}/mo + ${tier.perCover}/cover</span>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3, display: 'block' }}>
+              {tier.perCover > 0
+                ? `$${tier.monthlyBase}/mo + $${tier.perCover}/cover`
+                : tier.monthlyBase > 0
+                  ? `$${tier.monthlyBase}/mo flat`
+                  : 'No current cost'}
+              {tier.note ? ` (${tier.note})` : ''}
+            </span>
           </div>
           <div>
             <label style={labelStyle}>Monthly covers (approx)</label>
@@ -2472,28 +2492,36 @@ function ROICalculator() {
           <span>1. COST RELIEF</span>
           <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(255,255,255,0.06)', padding: '2px 8px', borderRadius: 10 }}>PUBLIC PRICING</span>
         </div>
-        <div style={rowStyle}>
-          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>OpenTable annual cost {locations > 1 ? `(per location)` : ''}</span>
-          <span style={{ fontWeight: 600 }}>{fmt(otAnnualPerLoc)}/yr</span>
-        </div>
-        <div style={rowStyle}>
-          <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Toast Tables annual cost</span>
-          <span style={{ fontWeight: 600 }}>{fmt(tablesAnnualPerLoc)}/yr</span>
-        </div>
-        {locations > 1 && (
-          <div style={rowStyle}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Locations</span>
-            <span style={{ fontWeight: 600 }}>{locations}x</span>
+        {tier.platform === 'None' ? (
+          <div style={{ padding: '10px 0', fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+            No current platform cost. Toast Tables adds $199/mo per location.
           </div>
-        )}
-        <div style={{ paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontWeight: 700, fontSize: 13 }}>Total annual savings</span>
-          <span style={bigNum}>{fmt(totalSavings)}/yr</span>
-        </div>
-        {showInternal && (
-          <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
-            Formula: ({fmt(tier.monthlyBase)} + {monthlyCovers.toLocaleString()} covers x ${tier.perCover}) x 12 = {fmt(otAnnualPerLoc)} OT vs {fmt(tablesAnnualPerLoc)} Tables
-          </div>
+        ) : (
+          <>
+            <div style={rowStyle}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{tier.label} annual cost {locations > 1 ? '(per location)' : ''}</span>
+              <span style={{ fontWeight: 600 }}>{fmt(competitorAnnualPerLoc)}/yr</span>
+            </div>
+            <div style={rowStyle}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Toast Tables annual cost</span>
+              <span style={{ fontWeight: 600 }}>{fmt(tablesAnnualPerLoc)}/yr</span>
+            </div>
+            {locations > 1 && (
+              <div style={rowStyle}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Locations</span>
+                <span style={{ fontWeight: 600 }}>{locations}x</span>
+              </div>
+            )}
+            <div style={{ paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 13 }}>Total annual savings</span>
+              <span style={bigNum}>{fmt(totalSavings)}/yr</span>
+            </div>
+            {showInternal && tier.perCover > 0 && (
+              <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.15)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                Formula: (${tier.monthlyBase} + {monthlyCovers.toLocaleString()} covers x ${tier.perCover}) x 12 = {fmt(competitorAnnualPerLoc)} vs {fmt(tablesAnnualPerLoc)} Tables
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -2504,8 +2532,10 @@ function ROICalculator() {
           <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600, textTransform: 'none', letterSpacing: 0, background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: 10 }}>OBSERVED</span>
         </div>
         <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(255,76,0,0.05)', borderRadius: 6, border: '1px solid rgba(255,76,0,0.15)', fontSize: 11, color: 'var(--text-secondary)' }}>
-          Only ~{Math.round(OT_NETWORK_PCT * 100)}% of OT bookings come from OT's own app. The rest is organic, Google, and direct - Toast Tables replaces that on day one.
-          {showInternal && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>[CITED: SevenRooms 2023 State of Restaurant Reservations]</span>}
+          {tier.platform === 'OpenTable'
+            ? `Only ~${Math.round(OT_NETWORK_PCT * 100)}% of OT bookings come through OpenTable's own discovery app. The other ~91% is organic, Google, and direct -- Toast Tables captures that on day one.`
+            : 'Google Reserve with Google and Toast Local drive bookings from day one, regardless of which platform you replace.'}
+          {showInternal && tier.platform === 'OpenTable' && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>[CITED: SevenRooms 2023 State of Restaurant Reservations]</span>}
         </div>
         <div style={rowStyle}>
           <div>
@@ -2601,7 +2631,7 @@ function ROICalculator() {
         </div>
         {!showInternal && (
           <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,76,0,0.2)', fontSize: 10, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-            Estimates based on cost savings vs. public OpenTable pricing and observed Google RwG booking data across Toast Tables restaurants. Actual results vary. Demand gen figures are directional and not guaranteed. Toast Tables pricing is $199/month.
+            Estimates based on cost savings vs. public {tier.platform !== 'None' ? tier.platform : 'competitor'} pricing and observed Google RwG booking data across Toast Tables restaurants. Actual results vary. Demand gen figures are directional and not guaranteed. Toast Tables pricing is $199/month.
           </div>
         )}
       </div>
@@ -2855,7 +2885,7 @@ export default function Home() {
             value={collectorAnswers.focus}
             onChange={e => setCollectorAnswers(p => ({ ...p, focus: e.target.value }))}
             onKeyDown={e => { if (e.key === 'Enter') submitCollector(); }}
-            placeholder="e.g. cancel risk review, xtraCHEF attach, QBR prep"
+            placeholder="e.g. activation calls, OpenTable competitive deals, pipeline review"
             style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border, #333)', background: 'var(--bg-card, #1a1a1a)', color: 'var(--text-primary, #f5f5f5)', fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' }}
           />
         </div>
@@ -2989,8 +3019,8 @@ export default function Home() {
       {showOnboarding && <OnboardingBanner onDismiss={dismissOnboarding} onGo={m => { setMode(m); dismissOnboarding(); }} />}
       <TabShell
         persona="am"
-        appName="Account Manager"
-        appNameAccent="Manager"
+        appName="Sales Rep"
+        appNameAccent="Rep"
         headerRight={headerRight}
         tabs={tabs}
         activeTab={mode}

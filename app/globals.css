@@ -60,6 +60,43 @@
 }
 
 /* -----------------------------------------------
+   Light mode overrides (html:not(.dark))
+   ----------------------------------------------- */
+
+html:not(.dark) {
+  --color-bg-base:     #f5f6fa;
+  --color-bg-surface:  #ffffff;
+  --color-bg-elevated: #eef0f6;
+
+  --color-border:        #d4d8e8;
+  --color-border-subtle: #e4e7f0;
+
+  --color-text-primary:   #111827;
+  --color-text-secondary: #4b5563;
+  --color-text-muted:     #9ca3af;
+
+  --color-success-dim: rgba(74, 222, 128, 0.15);
+  --color-warning-dim: rgba(251, 191, 36, 0.15);
+  --color-danger-dim:  rgba(248, 113, 113, 0.15);
+
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.08);
+
+  --bg-page:        var(--color-bg-base);
+  --bg-header:      var(--color-bg-surface);
+  --bg-card:        var(--color-bg-surface);
+  --bg-input:       var(--color-bg-surface);
+  --bg-strip:       var(--color-bg-elevated);
+  --border:         var(--color-border);
+  --border-subtle:  var(--color-border-subtle);
+  --text-primary:   var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-tertiary:  var(--color-text-muted);
+  --bubble-ai:          rgba(108, 140, 248, 0.06);
+  --bubble-ai-border:   rgba(108, 140, 248, 0.18);
+  --shadow:         var(--shadow-card);
+}
+
+/* -----------------------------------------------
    Persona accent overrides via data-persona attr
    ----------------------------------------------- */
 
