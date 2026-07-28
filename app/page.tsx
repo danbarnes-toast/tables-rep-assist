@@ -2217,7 +2217,7 @@ function ROICalculator() {
   const [category, setCategory] = useState<CategoryKey>('casual_dining');
   const [hasEM, setHasEM] = useState(false);
   const [hasAds, setHasAds] = useState(false);
-  const [showInternal, setShowInternal] = useState(true);
+  const [showInternal, setShowInternal] = useState(false);
 
   const tier = OT_TIERS[otTier];
   const cat = RWG_BY_CATEGORY[category];

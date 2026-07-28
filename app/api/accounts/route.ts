@@ -13,7 +13,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const repData = await loadRepData();
-    const data = repData[email] as { accounts?: Record<string, unknown>[] } | undefined;
+    let data = repData[email] as { accounts?: Record<string, unknown>[] } | undefined;
+    if (!data) {
+      const demoEmail = (process.env.DEMO_EMAIL ?? '').toLowerCase();
+      if (demoEmail) data = repData[demoEmail] as { accounts?: Record<string, unknown>[] } | undefined;
+    }
     if (!data) return NextResponse.json({ error: 'no data for this rep', email }, { status: 404 });
 
     if (Array.isArray(data.accounts)) {
