@@ -2497,12 +2497,6 @@ function WorkflowsTab({ repData }: { repData: RepData | null }) {
     borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10,
   };
 
-  const workflows = [
-    { emoji: '📅', title: 'Scheduling agent', desc: 'Build a shift schedule or floor plan based on booking patterns and cover targets.', status: 'Next wave' },
-    { emoji: '📣', title: 'Marketing plan', desc: 'Draft a seasonal promo or email campaign based on slow periods and guest data.', status: 'Next wave' },
-    { emoji: '📊', title: 'Business review', desc: 'Auto-generate a QBR deck: covers, bookings, competitive benchmark, upsell opportunity.', status: 'Next wave' },
-  ];
-
   return (
     <div style={{ padding: '24px 16px', maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
@@ -2534,19 +2528,6 @@ function WorkflowsTab({ repData }: { repData: RepData | null }) {
         </button>
       </div>
 
-      {/* Upcoming workflow cards */}
-      {workflows.map(w => (
-        <div key={w.title} style={{ ...cardBase, opacity: 0.7 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 22 }}>{w.emoji}</span>
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{w.title}</p>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', background: 'var(--bg-strip)', border: '1px solid var(--border)', borderRadius: 20, padding: '2px 8px', fontFamily: 'monospace', textTransform: 'uppercase' as const }}>{w.status}</span>
-          </div>
-          <p style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>{w.desc}</p>
-        </div>
-      ))}
 
       {/* Toast IQ modal */}
       {toastIQOpen && (
