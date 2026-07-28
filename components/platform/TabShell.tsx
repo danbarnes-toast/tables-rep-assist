@@ -26,6 +26,8 @@ type TabShellProps = {
   tabs: (NavTab & { content: React.ReactNode })[];
   activeTab: string;
   onTabChange: (id: string) => void;
+  /** Tab IDs to show in mobile nav bar (max 5). Rest go in More sheet. */
+  primaryTabIds?: string[];
 };
 
 export function TabShell({
@@ -36,6 +38,7 @@ export function TabShell({
   tabs,
   activeTab,
   onTabChange,
+  primaryTabIds,
 }: TabShellProps) {
   const activeContent = tabs.find(t => t.id === activeTab)?.content;
 
@@ -96,6 +99,7 @@ export function TabShell({
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={onTabChange}
+        primaryTabIds={primaryTabIds}
       />
     </div>
   );

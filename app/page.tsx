@@ -954,7 +954,9 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
 
   const activated = repData?.accounts.filter(a => a.is_activated).length ?? 0;
   const total = repData?.accounts.length ?? 0;
-  // Cold: use best available signal (TASK_ACTIVITY primary, Chorus fallback)
+  // Never-activated is the validated churn signal: 2.4x lift, 25% of book (backtest Jan 2025-Mar 2026)
+  const neverActivated = repData?.accounts.filter(a => !a.is_activated).length ?? 0;
+  // Cold: kept for display context but NOT used as a primary risk signal (backtest: covers <0.1% of book)
   const coldAccounts = repData?.accounts.filter(a => {
     const dstSf = a.days_since_rep_contact ?? 9999;
     const dstChorus = a.days_since_touchpoint ?? 9999;
@@ -982,16 +984,18 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
   const rankedAccounts: RankedAccount[] = (repData?.accounts ?? []).map(a => {
     let score = 0;
     const reasons: string[] = [];
-    // Health
-    if (a.account_health === 'cancel_risk') { score += 40; reasons.push('cancel risk'); }
-    else if (a.account_health === 'at_risk') { score += 20; reasons.push('at risk'); }
-    // Cold contact: use best available signal (TASK_ACTIVITY primary, Chorus fallback)
+    // Never-activated: primary validated signal (48% churn vs 20% baseline, backtest Jan 2025-Mar 2026)
+    if (!a.is_activated) { score += 40; reasons.push('not yet activated'); }
+    // Health (cancel risk is an additional strong signal on top of activation status)
+    if (a.account_health === 'cancel_risk') { score += 30; reasons.push('cancel risk'); }
+    else if (a.account_health === 'at_risk') { score += 15; reasons.push('at risk'); }
+    // No-contact: unvalidated in backtest (covers <0.1% of book) -- minor tie-breaker only
     const dstSf = a.days_since_rep_contact ?? 9999;
     const dstChorus = a.days_since_touchpoint ?? 9999;
     const dst = Math.min(dstSf, dstChorus);
-    if (dst >= 999) { score += 25; reasons.push('no contact on record'); }
-    else if (dst > 180) { score += 20; reasons.push(`${dst}d no contact`); }
-    else if (dst > 90) { score += 10; reasons.push(`${dst}d no contact`); }
+    if (dst >= 999) { score += 5; reasons.push('no contact on record'); }
+    else if (dst > 180) { score += 3; reasons.push(`${dst}d no contact`); }
+    else if (dst > 90) { score += 2; reasons.push(`${dst}d no contact`); }
     // Real support cases
     const cd = a.case_data;
     if (cd) {
@@ -1016,23 +1020,26 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
     // Derive one specific action based on highest-priority signal
     let action = '';
     const atRiskProducts = (a.products ?? []).filter(p => ['live_at_risk', 'live_stalled', 'purchased_not_activated'].includes(p.status));
-    if (cd && cd.escalated_cases > 0) {
+    if (!a.is_activated) {
+      const daysSinceLive = daysSince(a.signed_date);
+      if (daysSinceLive !== null && daysSinceLive < 7) {
+        action = `Signed ${daysSinceLive}d ago - schedule the first setup call this week`;
+      } else if (daysSinceLive !== null && daysSinceLive < 21) {
+        action = `${daysSinceLive}d since signup, no first booking - walk them through the setup checklist`;
+      } else {
+        action = `${daysSinceLive ?? '30+'}d no first booking - activation stalled, call to unblock`;
+      }
+    } else if (cd && cd.escalated_cases > 0) {
       action = `Escalated case open - call before it becomes a cancel decision`;
-    } else if (a.account_health === 'cancel_risk' && dst > 90) {
-      action = `No contact in ${dst >= 999 ? '180+' : dst}d - reach out this week, cancel window is open`;
     } else if (a.account_health === 'cancel_risk') {
       action = `Cancel risk - review last call notes and identify the one thing holding them`;
     } else if (flare.includes('trajectory_decline')) {
-      action = `Booking decline - ask: "Your volume dropped ${Math.round((1 - (a.bookings_90d / Math.max(a.bookings_90d * 1.3, 1))) * 100)}% - is that intentional or a config issue?"`;
+      action = `Booking decline - ask: "Your volume dropped - is that intentional or a config issue?"`;
     } else if (cd && cd.open_cases > 0) {
       action = `${cd.open_cases} open ticket${cd.open_cases > 1 ? 's' : ''} - check status before they escalate`;
-    } else if (flare.includes('activation_gap')) {
-      action = `Not yet activated - confirm schedule is live and floor plan is complete`;
     } else if (atRiskProducts.length > 0) {
       const prod = atRiskProducts[0].product;
       action = `${prod} stalled - ask: "What would it take to get value from ${prod} this quarter?"`;
-    } else if (dst > 180) {
-      action = `No recorded call in ${dst >= 999 ? '180+' : dst}d - schedule a check-in`;
     } else if (a.is_activated && a.bookings_90d < 20) {
       action = `Low bookings (${a.bookings_90d} in 90d) - confirm booking page is public and RwG is live`;
     }
@@ -1085,13 +1092,13 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
         <div>
           <p style={labelStyle}>Today's signals</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {coldAccounts > 0 && (
-              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}>
+            {neverActivated > 0 && (
+              <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderLeft: '3px solid #dc2626', borderColor: 'rgba(220,38,38,0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>{'🕐'}</span>
+                  <span style={{ fontSize: 18 }}>{'⚡'}</span>
                   <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{coldAccounts} accounts with no recorded call in 180+ days</p>
-                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>No Chorus call on record. Schedule a check-in before issues surface.</p>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{neverActivated} account{neverActivated !== 1 ? 's' : ''} not yet activated</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>No first booking. These accounts churn at 2x the rate of activated ones.</p>
                   </div>
                 </div>
               </button>
@@ -1157,14 +1164,15 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
                 </div>
                 <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   {acct._reasons.map(r => {
+                    const isNotActivated = r === 'not yet activated';
                     const isCancelRisk = r === 'cancel risk';
                     const isAtRisk = r === 'at risk';
                     const isEscalated = r.includes('escalated');
                     const isCase = r.includes('case') && !isEscalated;
                     const isFlare = r === 'booking decline' || r === 'care + no contact' || r === 'activation gap';
-                    const color = isCancelRisk ? '#dc2626' : isAtRisk ? '#d97706' : isEscalated ? '#dc2626' : isCase ? '#a78bfa' : isFlare ? '#f59e0b' : '#64748b';
-                    const bg = isCancelRisk ? 'rgba(220,38,38,0.08)' : isAtRisk ? 'rgba(245,158,11,0.08)' : isEscalated ? 'rgba(220,38,38,0.08)' : isCase ? 'rgba(167,139,250,0.08)' : isFlare ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)';
-                    const border = isCancelRisk ? 'rgba(220,38,38,0.2)' : isAtRisk ? 'rgba(245,158,11,0.2)' : isEscalated ? 'rgba(220,38,38,0.2)' : isCase ? 'rgba(167,139,250,0.2)' : isFlare ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)';
+                    const color = isNotActivated ? '#dc2626' : isCancelRisk ? '#dc2626' : isAtRisk ? '#d97706' : isEscalated ? '#dc2626' : isCase ? '#a78bfa' : isFlare ? '#f59e0b' : '#64748b';
+                    const bg = isNotActivated ? 'rgba(220,38,38,0.08)' : isCancelRisk ? 'rgba(220,38,38,0.08)' : isAtRisk ? 'rgba(245,158,11,0.08)' : isEscalated ? 'rgba(220,38,38,0.08)' : isCase ? 'rgba(167,139,250,0.08)' : isFlare ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)';
+                    const border = isNotActivated ? 'rgba(220,38,38,0.2)' : isCancelRisk ? 'rgba(220,38,38,0.2)' : isAtRisk ? 'rgba(245,158,11,0.2)' : isEscalated ? 'rgba(220,38,38,0.2)' : isCase ? 'rgba(167,139,250,0.2)' : isFlare ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)';
                     return (
                       <span key={r} style={{ fontSize: 9, fontWeight: 600, fontFamily: 'monospace', color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap' }}>
                         {r.toUpperCase()}
@@ -1192,9 +1200,9 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
               <p style={{ fontSize: 22, fontWeight: 700, color: '#10b981', letterSpacing: '-0.02em' }}>{activated}</p>
               <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>live and active</p>
             </button>
-            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderColor: coldAccounts > 0 ? 'rgba(245,158,11,0.3)' : 'var(--border)' }}>
-              <p style={{ fontSize: 22, fontWeight: 700, color: coldAccounts > 0 ? '#f59e0b' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{coldAccounts}</p>
-              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>going cold</p>
+            <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left', borderColor: neverActivated > 0 ? 'rgba(220,38,38,0.3)' : 'var(--border)' }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: neverActivated > 0 ? '#dc2626' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{neverActivated}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>not activated</p>
             </button>
             {avgArr > 0 && (
               <button onClick={() => onNav('accounts')} style={{ ...cardStyle, cursor: 'pointer', textAlign: 'left' }}>
@@ -1634,13 +1642,39 @@ function ChorusCallsAccordion({ calls }: { calls: ChorusCall[] }) {
 }
 
 // ── Accounts tab ───────────────────────────────────────────────────────────
+type AccountsFilter = 'all' | 'at_risk' | 'not_activated' | 'healthy';
+
 function AccountsTab({ data, productFilter, onClearFilter }: { data: RepData; productFilter?: string | null; onClearFilter?: () => void }) {
-  const filteredAccounts = productFilter
+  const [healthFilter, setHealthFilter] = useState<AccountsFilter>('all');
+
+  const productFiltered = productFilter
     ? data.accounts.filter(a => {
         const match = a.products?.find(p => p.product === productFilter);
         return !match || match.status !== 'live_healthy';
       })
     : data.accounts;
+
+  const filteredAccounts = productFiltered.filter(a => {
+    if (healthFilter === 'all') return true;
+    if (healthFilter === 'not_activated') return !a.is_activated;
+    if (healthFilter === 'at_risk') return a.account_health === 'at_risk' || a.account_health === 'cancel_risk';
+    if (healthFilter === 'healthy') return a.account_health === 'healthy' && a.is_activated;
+    return true;
+  });
+
+  const filterCounts = {
+    all: productFiltered.length,
+    not_activated: productFiltered.filter(a => !a.is_activated).length,
+    at_risk: productFiltered.filter(a => a.account_health === 'at_risk' || a.account_health === 'cancel_risk').length,
+    healthy: productFiltered.filter(a => a.account_health === 'healthy' && a.is_activated).length,
+  };
+
+  const filterBtns: { id: AccountsFilter; label: string; color?: string }[] = [
+    { id: 'all', label: `All (${filterCounts.all})` },
+    { id: 'not_activated', label: `Not activated (${filterCounts.not_activated})`, color: '#dc2626' },
+    { id: 'at_risk', label: `Cancel risk (${filterCounts.at_risk})`, color: '#d97706' },
+    { id: 'healthy', label: `Healthy (${filterCounts.healthy})`, color: '#16a34a' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -1649,17 +1683,43 @@ function AccountsTab({ data, productFilter, onClearFilter }: { data: RepData; pr
         <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{data.team} · {data.region} · Updated {new Date(data.seeded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</p>
       </div>
 
+      {/* Filter strip */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+        {filterBtns.map(f => {
+          const active = healthFilter === f.id;
+          return (
+            <button
+              key={f.id}
+              onClick={() => setHealthFilter(f.id)}
+              style={{
+                padding: '5px 11px',
+                borderRadius: 20,
+                border: `1px solid ${active && f.color ? f.color : active ? 'var(--accent)' : 'var(--border)'}`,
+                background: active ? (f.color ? `${f.color}18` : 'var(--accent-light)') : 'transparent',
+                color: active ? (f.color ?? 'var(--accent)') : 'var(--text-secondary)',
+                fontSize: 11,
+                fontWeight: active ? 600 : 400,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap' as const,
+              }}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+        {productFilter && onClearFilter && (
+          <button onClick={onClearFilter} style={{ padding: '5px 11px', borderRadius: 20, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 11, cursor: 'pointer' }}>
+            Clear product filter
+          </button>
+        )}
+      </div>
+
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>
             {productFilter ? `Accounts without ${productFilter}` : 'Your Accounts'}
-            {productFilter && <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> ({filteredAccounts.length})</span>}
+            <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> ({filteredAccounts.length})</span>
           </p>
-          {productFilter && onClearFilter && (
-            <button onClick={onClearFilter} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 10, padding: '2px 8px' }}>
-              Clear filter
-            </button>
-          )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filteredAccounts.map(acct => {
@@ -2861,6 +2921,7 @@ export default function Home() {
         tabs={tabs}
         activeTab={mode}
         onTabChange={m => setMode(m as Mode)}
+        primaryTabIds={['home', 'prep', 'ask', 'accounts', 'listen']}
       />
     </>
   );
