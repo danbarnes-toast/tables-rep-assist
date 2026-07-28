@@ -945,6 +945,38 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
 
   const toggleAction = (id: string) => saveActions(actions.map(a => a.id === id ? { ...a, done: !a.done } : a));
   const deleteAction = (id: string) => saveActions(actions.filter(a => a.id !== id));
+
+  // Contacted tracking: persisted per rep per ISO week so accounts don't resurface after a touchpoint
+  const weekKey = (() => {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const wk = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `rep_contacted_${repData?.rep_name ?? 'default'}_${d.getUTCFullYear()}_w${wk}`;
+  })();
+  type ContactRecord = { outcome: 'reached' | 'voicemail' | 'no_answer' };
+  const [contactedThisWeek, setContactedThisWeek] = useState<Map<string, ContactRecord>>(new Map());
+  const [pendingContact, setPendingContact] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(weekKey);
+      if (stored) setContactedThisWeek(new Map(JSON.parse(stored)));
+    } catch {}
+  }, [weekKey]);
+  const markContacted = (accountName: string, outcome: ContactRecord['outcome']) => {
+    const updated = new Map(contactedThisWeek);
+    updated.set(accountName, { outcome });
+    setContactedThisWeek(updated);
+    setPendingContact(null);
+    try { localStorage.setItem(weekKey, JSON.stringify([...updated])); } catch {}
+  };
+  const unmarkContacted = (accountName: string) => {
+    const updated = new Map(contactedThisWeek);
+    updated.delete(accountName);
+    setContactedThisWeek(updated);
+    try { localStorage.setItem(weekKey, JSON.stringify([...updated])); } catch {}
+  };
   const addAction = () => {
     if (!newAction.trim()) return;
     const item: ActionItem = { id: Date.now().toString(), text: newAction.trim(), done: false };
@@ -981,7 +1013,7 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
   // Cx Ranker v2: score each account by urgency, surface top 5
   // Uses real support case data, TASK_ACTIVITY contact dates, and Flare signals
   type RankedAccount = Account & { _score: number; _reasons: string[]; _action: string };
-  const rankedAccounts: RankedAccount[] = (repData?.accounts ?? []).map(a => {
+  const allRanked: RankedAccount[] = (repData?.accounts ?? []).map(a => {
     let score = 0;
     const reasons: string[] = [];
     // Never-activated: primary validated signal (48% churn vs 20% baseline, backtest Jan 2025-Mar 2026)
@@ -1045,7 +1077,10 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
     }
 
     return { ...a, _score: score, _reasons: reasons.slice(0, 2), _action: action };
-  }).sort((a, b) => b._score - a._score).slice(0, 5);
+  }).sort((a, b) => b._score - a._score);
+
+  const rankedAccounts = allRanked.filter(a => !contactedThisWeek.has(a.name)).slice(0, 5);
+  const contactedAccounts = allRanked.filter(a => contactedThisWeek.has(a.name)).map(a => ({ ...a, _contact: contactedThisWeek.get(a.name)! }));
 
   const labelStyle: React.CSSProperties = {
     fontSize: 10, textTransform: 'uppercase' as const, letterSpacing: '0.1em',
@@ -1147,42 +1182,77 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
             {rankedAccounts.map((acct, idx) => {
               const acctIdx = repData?.accounts.findIndex(a => a.name === acct.name) ?? -1;
               return (
-              <button key={acct.name} onClick={() => { if (acctIdx >= 0) onPrepAccount(acctIdx); }} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
+              <div key={acct.name} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0',
                 borderBottom: idx < rankedAccounts.length - 1 ? '1px solid var(--border)' : 'none',
-                background: 'none', border: 'none', borderRadius: 0, cursor: 'pointer', textAlign: 'left', width: '100%',
               }}>
-                <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-tertiary)', width: 14, flexShrink: 0 }}>{idx + 1}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acct.name}</p>
-                  {acct._action && (
-                    <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, lineHeight: 1.4 }}>{acct._action}</p>
-                  )}
-                  <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                    {acct.city}, {acct.state}{acct.total_arr ? ` · $${(acct.total_arr / 1000).toFixed(1)}k ARR` : ''}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: 4, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {acct._reasons.map(r => {
-                    const isNotActivated = r === 'not yet activated';
-                    const isCancelRisk = r === 'cancel risk';
-                    const isAtRisk = r === 'at risk';
-                    const isEscalated = r.includes('escalated');
-                    const isCase = r.includes('case') && !isEscalated;
-                    const isFlare = r === 'booking decline' || r === 'care + no contact' || r === 'activation gap';
-                    const color = isNotActivated ? '#dc2626' : isCancelRisk ? '#dc2626' : isAtRisk ? '#d97706' : isEscalated ? '#dc2626' : isCase ? '#a78bfa' : isFlare ? '#f59e0b' : '#64748b';
-                    const bg = isNotActivated ? 'rgba(220,38,38,0.08)' : isCancelRisk ? 'rgba(220,38,38,0.08)' : isAtRisk ? 'rgba(245,158,11,0.08)' : isEscalated ? 'rgba(220,38,38,0.08)' : isCase ? 'rgba(167,139,250,0.08)' : isFlare ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)';
-                    const border = isNotActivated ? 'rgba(220,38,38,0.2)' : isCancelRisk ? 'rgba(220,38,38,0.2)' : isAtRisk ? 'rgba(245,158,11,0.2)' : isEscalated ? 'rgba(220,38,38,0.2)' : isCase ? 'rgba(167,139,250,0.2)' : isFlare ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)';
-                    return (
-                      <span key={r} style={{ fontSize: 9, fontWeight: 600, fontFamily: 'monospace', color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap' }}>
-                        {r.toUpperCase()}
-                      </span>
-                    );
-                  })}
-                </div>
-              </button>
+                <button onClick={() => { if (acctIdx >= 0) onPrepAccount(acctIdx); }} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 0,
+                  background: 'none', border: 'none', borderRadius: 0, cursor: 'pointer', textAlign: 'left', padding: 0,
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-tertiary)', width: 14, flexShrink: 0, paddingTop: 2 }}>{idx + 1}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{acct.name}</p>
+                    {acct._action && (
+                      <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2, lineHeight: 1.4 }}>{acct._action}</p>
+                    )}
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+                      {acct._reasons.map(r => {
+                        const isNotActivated = r === 'not yet activated';
+                        const isCancelRisk = r === 'cancel risk';
+                        const isAtRisk = r === 'at risk';
+                        const isEscalated = r.includes('escalated');
+                        const isCase = r.includes('case') && !isEscalated;
+                        const isFlare = r === 'booking decline' || r === 'care + no contact' || r === 'activation gap';
+                        const color = isNotActivated ? '#dc2626' : isCancelRisk ? '#dc2626' : isAtRisk ? '#d97706' : isEscalated ? '#dc2626' : isCase ? '#a78bfa' : isFlare ? '#f59e0b' : '#64748b';
+                        const bg = isNotActivated ? 'rgba(220,38,38,0.08)' : isCancelRisk ? 'rgba(220,38,38,0.08)' : isAtRisk ? 'rgba(245,158,11,0.08)' : isEscalated ? 'rgba(220,38,38,0.08)' : isCase ? 'rgba(167,139,250,0.08)' : isFlare ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)';
+                        const border = isNotActivated ? 'rgba(220,38,38,0.2)' : isCancelRisk ? 'rgba(220,38,38,0.2)' : isAtRisk ? 'rgba(245,158,11,0.2)' : isEscalated ? 'rgba(220,38,38,0.2)' : isCase ? 'rgba(167,139,250,0.2)' : isFlare ? 'rgba(245,158,11,0.2)' : 'rgba(100,116,139,0.2)';
+                        return (
+                          <span key={r} style={{ fontSize: 9, fontWeight: 600, fontFamily: 'monospace', color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: '2px 5px', whiteSpace: 'nowrap' }}>
+                            {r.toUpperCase()}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </button>
+                {pendingContact === acct.name ? (
+                  <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
+                    {(['reached', 'voicemail', 'no_answer'] as const).map(o => (
+                      <button key={o} onClick={(e) => { e.stopPropagation(); markContacted(acct.name, o); }}
+                        style={{ minWidth: 44, minHeight: 28, background: o === 'reached' ? 'rgba(16,185,129,0.1)' : 'var(--bg-strip)', border: `1px solid ${o === 'reached' ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`, borderRadius: 6, color: o === 'reached' ? '#10b981' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 10, fontWeight: 500, padding: '4px 6px', whiteSpace: 'nowrap' as const }}>
+                        {o === 'reached' ? 'Reached' : o === 'voicemail' ? 'VM' : 'No ans'}
+                      </button>
+                    ))}
+                    <button onClick={(e) => { e.stopPropagation(); setPendingContact(null); }} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 10, padding: '2px 0' }}>cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); setPendingContact(acct.name); }}
+                    style={{ flexShrink: 0, minWidth: 44, minHeight: 44, background: 'none', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 10, padding: '3px 7px', marginTop: 2, whiteSpace: 'nowrap' as const }}>
+                    Done
+                  </button>
+                )}
+              </div>
               );
             })}
+            {contactedAccounts.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
+                <p style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 6 }}>Contacted this week ({contactedAccounts.length})</p>
+                {contactedAccounts.map(acct => {
+                  const outcomeLabel = acct._contact.outcome === 'reached' ? '✓ Reached' : acct._contact.outcome === 'voicemail' ? 'VM' : 'No ans';
+                  const outcomeColor = acct._contact.outcome === 'reached' ? '#10b981' : 'var(--text-tertiary)';
+                  return (
+                    <div key={acct.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0', opacity: 0.6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <p style={{ fontSize: 12, color: 'var(--text-secondary)', textDecoration: 'line-through' }}>{acct.name}</p>
+                        <span style={{ fontSize: 10, color: outcomeColor, fontWeight: 500 }}>{outcomeLabel}</span>
+                      </div>
+                      <button onClick={() => unmarkContacted(acct.name)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 10, padding: '2px 4px' }}>undo</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1216,6 +1286,10 @@ function HomeTab({ repData, repEmail, streak, onNav, onPrepAccount, onShowGapAcc
                 <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>open tickets</p>
               </button>
             )}
+            <div style={{ ...cardStyle }}>
+              <p style={{ fontSize: 22, fontWeight: 700, color: contactedAccounts.length > 0 ? '#10b981' : 'var(--text-primary)', letterSpacing: '-0.02em' }}>{contactedAccounts.length}</p>
+              <p style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>contacted this week</p>
+            </div>
           </div>
         </div>
       )}
